@@ -132,10 +132,7 @@ export default function Dashboard() {
     } });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-    if (path !== '/api/ml/export') {
-      const status = await fetch('/api/status').then((result) => result.json());
-      setData(status);
-    }
+    if (path !== '/api/ml/export') setData((current) => ({ ...current, ml: body }));
     return body;
   }
   async function runMlAction(path, options, success) {
@@ -167,7 +164,12 @@ export default function Dashboard() {
     setTrainingBusy(true);
     setTrainingMessage('');
     try {
-      const contents = JSON.parse(await file.text());
+      let contents;
+      try { contents = JSON.parse(await file.text()); }
+      catch { throw new Error('This file is not valid JSON. Choose a DisasterGuard training data file.'); }
+      if (!contents || typeof contents !== 'object' || Array.isArray(contents) || !Array.isArray(contents.samples)) throw new Error('Choose a DisasterGuard training JSON file that contains a samples list.');
+      if (!contents.samples.length) throw new Error('This file contains no readings to import.');
+      if (contents.samples.length > 20_000) throw new Error('This file is too large. Import no more than 20,000 readings.');
       await mlRequest('/api/ml/import', { method: 'POST', body: JSON.stringify(contents) });
       setTrainingMessage('Labeled readings imported. Train the model when all categories have enough examples.');
     } catch (error) { setTrainingMessage(error.message); }

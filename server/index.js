@@ -1,7 +1,7 @@
 import 'dotenv/config';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -24,7 +24,7 @@ const clients = new Set();
 
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '16mb' }));
 app.get('/api/status', (_request, response) => response.json(snapshot()));
 app.get('/api/health', (_request, response) => response.json({ ok: true, mqtt: mqttState, time: Date.now() }));
 app.get('/api/events', (request, response) => {
@@ -68,13 +68,31 @@ function snapshot() {
 }
 function send(response) { response.write(`data: ${JSON.stringify(snapshot())}\n\n`); }
 function broadcast() { for (const client of clients) send(client); }
-function parseTelemetry(buffer) {
-  const message = JSON.parse(buffer.toString());
+class ValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ValidationError';
+    this.status = 400;
+  }
+}
+
+function parseTelemetry(input) {
+  let message;
+  if (Buffer.isBuffer(input) || typeof input === 'string') {
+    try { message = JSON.parse(input.toString()); }
+    catch { throw new ValidationError('Reading data must be valid JSON.'); }
+  } else if (input && typeof input === 'object' && !Array.isArray(input)) {
+    message = input;
+  } else {
+    throw new ValidationError('Reading data must be a JSON object.');
+  }
+  if (!message || typeof message !== 'object' || Array.isArray(message)) throw new ValidationError('Reading data must be a JSON object.');
   const sensors = message.sensors ?? message;
+  if (!sensors || typeof sensors !== 'object' || Array.isArray(sensors)) throw new ValidationError('Each reading must include a sensors object.');
   const { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected } = sensors;
-  if (![gasRaw, lightRaw].every((value) => Number.isInteger(value) && value >= 0 && value <= 4095)) throw new Error('gasRaw and lightRaw must be ADC readings from 0 to 4095');
-  if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, and vibrationDetected must be booleans');
-  if (lightningDetected != null && typeof lightningDetected !== 'boolean') throw new Error('lightningDetected must be a boolean when provided');
+  if (![gasRaw, lightRaw].every((value) => Number.isInteger(value) && value >= 0 && value <= 4095)) throw new ValidationError('Each reading needs gasRaw and lightRaw ADC values from 0 to 4095.');
+  if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new ValidationError('Each reading needs rainDetected, objectDetected, and vibrationDetected as true or false.');
+  if (lightningDetected != null && typeof lightningDetected !== 'boolean') throw new ValidationError('lightningDetected must be true, false, or omitted.');
   return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected: lightningDetected ?? null };
 }
 
@@ -83,22 +101,35 @@ function requireMlAdmin(request, response, next) {
   if (!expected) return response.status(503).json({ error: 'ML_ADMIN_TOKEN is not configured on the server.' });
   const authorization = request.get('authorization') || '';
   const supplied = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (supplied.length !== expected.length || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
+  const suppliedBytes = Buffer.from(supplied, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  if (suppliedBytes.length !== expectedBytes.length || !timingSafeEqual(suppliedBytes, expectedBytes)) {
     return response.status(401).json({ error: 'Enter the training access key configured on the server.' });
   }
   next();
 }
 
 function cleanLabeledSamples(samples) {
-  if (!Array.isArray(samples) || samples.length > 20_000) throw new Error('Dataset must contain no more than 20,000 labeled readings.');
-  return samples.map((sample) => {
-    if (!HAZARD_CLASSES.some(({ id }) => id === sample.label)) throw new Error('Dataset contains an unknown label.');
-    return { label: sample.label, sensors: parseTelemetry({ sensors: sample.sensors }), at: Number.isFinite(sample.at) ? sample.at : Date.now() };
+  if (!Array.isArray(samples)) throw new ValidationError('Choose a DisasterGuard JSON file containing a samples list.');
+  if (samples.length === 0) throw new ValidationError('The selected dataset has no readings to import.');
+  if (samples.length > 20_000) throw new ValidationError('The dataset is too large. Import no more than 20,000 readings.');
+  return samples.map((sample, index) => {
+    if (!sample || typeof sample !== 'object' || Array.isArray(sample)) throw new ValidationError(`Reading ${index + 1} must be a JSON object.`);
+    if (!HAZARD_CLASSES.some(({ id }) => id === sample.label)) throw new ValidationError(`Reading ${index + 1} has an unknown label.`);
+    const sensors = sample.sensors ? { sensors: sample.sensors } : sample;
+    return { label: sample.label, sensors: parseTelemetry(sensors), at: Number.isFinite(sample.at) ? sample.at : Date.now() };
   });
 }
 
-async function saveTrainingData() {
-  await writeFile(trainingFile, JSON.stringify({ version: 1, samples: labeledSamples }), 'utf8');
+async function saveTrainingData(samples = labeledSamples) {
+  const temporaryFile = `${trainingFile}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryFile, JSON.stringify({ version: 1, samples }), 'utf8');
+    await rename(temporaryFile, trainingFile);
+  } catch (error) {
+    await unlink(temporaryFile).catch(() => {});
+    throw error;
+  }
 }
 
 app.get('/api/ml/summary', (_request, response) => response.json(mlSnapshot()));
@@ -131,12 +162,13 @@ app.get('/api/ml/export', requireMlAdmin, (_request, response) => {
 });
 app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
   try {
+    if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) throw new ValidationError('The import file must contain a JSON object.');
     const imported = cleanLabeledSamples(request.body?.samples);
+    await saveTrainingData(imported);
     labeledSamples = imported;
     capture = null;
     hazardModel = null;
     modelDirty = false;
-    await saveTrainingData();
     broadcast();
     response.json(mlSnapshot());
   } catch (error) { next(error); }
@@ -210,7 +242,11 @@ if (existsSync(join(webDist, 'index.html'))) {
 app.use('/api', (_request, response) => response.status(404).json({ error: 'API route not found' }));
 app.use((error, _request, response, _next) => {
   console.error('Request error:', error.message);
-  response.status(400).json({ error: 'Invalid request' });
+  if (response.headersSent) return response.end();
+  if (error.type === 'entity.too.large') return response.status(413).json({ error: 'This file is too large. Import a dataset with no more than 20,000 readings.' });
+  if (error.type === 'entity.parse.failed') return response.status(400).json({ error: 'The selected file is not valid JSON. Download a fresh DisasterGuard training file and try again.' });
+  if (error.status && error.status < 500) return response.status(error.status).json({ error: error.message });
+  response.status(500).json({ error: 'The server could not complete this ML request. Please retry. If importing, download the current readings first so you have a backup.' });
 });
 setInterval(broadcast, 5_000).unref();
 app.listen(port, () => console.log(`DisasterGuard API listening on port ${port}`));
