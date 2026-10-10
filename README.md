@@ -14,19 +14,19 @@ Never commit `.env` or put broker credentials in frontend code.
 
 ## Supervised sensor-pattern model
 
-The old unsupervised anomaly score has been removed. The replacement is a small, explainable multiclass decision tree trained from MQTT readings that you label in the dashboard. It does not invent labels or train itself on an assumed “normal” startup period. Every valid incoming MQTT reading is also appended to `server/telemetry-readings.jsonl` as an unlabeled archive (the newest 50,000 readings are kept). The archive can be downloaded from the dashboard.
+The old unsupervised anomaly score has been removed. The replacement is a small, explainable multiclass decision tree trained from MQTT readings that you label in the dashboard. It does not invent labels or train itself on an assumed “normal” startup period.
 
 1. Configure `ML_ADMIN_TOKEN` as a private environment variable on the server. Render Blueprints can generate it with `generateValue: true`; for an existing service, add it in the Render Environment settings. Enter that same key in the dashboard's training panel.
 2. With the ESP32 online, select the condition you are actually observing and click **Record this condition**. Incoming readings are saved with that label until you stop capture. Repeat for each condition you can safely observe, including normal conditions. The model requires at least 20 readings in any two categories before it can train; it only predicts categories with enough examples.
    For **Sudden light flash**, only MQTT readings with `lightningDetected: true` count, so brief safe flashlight pulses can be collected as separate examples without labeling the surrounding normal readings as flashes.
 3. Once there are enough labels, the server trains automatically. It retrains after every 20 additional labeled readings. You can still click **Train model now** to train immediately. The page shows the class counts and the model’s decision path for a prediction. “Leaf match” is the share of labeled examples in that tree leaf with the chosen label; it is not a calibrated probability.
-4. Use **Download live archive** for recent unlabeled telemetry, or **Download labeled training data** for model examples. Import restores the labeled training data; raw telemetry is not automatically used for training because it has no human-provided labels.
+4. Use **Download labeled training data** to back it up. Import restores the labeled training data.
 
 Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
 
 When the ESP32 lightning flag is active, the ML card gives that direct signal priority and displays “Sudden light flash” with its source identified. Other classifications continue to come from the trained decision tree.
 
-The raw archive and labeled dataset are local files on the server. Render's free service filesystem can reset after a restart or redeploy, so download both files for backup or configure persistent storage before relying on long-term retention.
+The labeled dataset is stored locally on the server. Render's free service filesystem can reset after a restart or redeploy, so download the labeled data for backup or configure persistent storage before relying on long-term retention.
 
 ## Telemetry contract
 
