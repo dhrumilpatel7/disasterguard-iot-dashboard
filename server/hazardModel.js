@@ -35,7 +35,8 @@ function gini(counts, total) {
 }
 
 function majorityLabel(counts) {
-  return HAZARD_CLASSES.reduce((best, item) => counts[item.id] > counts[best] ? item.id : best, HAZARD_CLASSES[0].id);
+  const labels = Object.keys(counts);
+  return labels.reduce((best, label) => counts[label] > counts[best] ? label : best, labels[0]);
 }
 
 function trainNode(samples, depth, classIds) {
@@ -79,8 +80,12 @@ function trainNode(samples, depth, classIds) {
 }
 
 export function trainHazardTree(samples) {
-  const labels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => samples.some((sample) => sample.label === id));
-  return { root: trainNode(samples, 0, labels), labels, trainedAt: Date.now(), samples: samples.length };
+  const trainingSamples = samples.map((sample) => ({
+    ...sample,
+    features: featuresFor(sample.sensors),
+  }));
+  const labels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => trainingSamples.some((sample) => sample.label === id));
+  return { root: trainNode(trainingSamples, 0, labels), labels, trainedAt: Date.now(), samples: trainingSamples.length };
 }
 
 export function predictHazard(model, sensors) {
