@@ -5,3 +5,4 @@
 @media(max-width:760px){.top-actions{gap:9px}.toggle-label{display:none}.theme-toggle{padding:6px 9px}.top-actions .top-meta{display:none}.trend-panel{padding:16px}}
 
 .binary-chart .chart-line{stroke:#edbd68;stroke-width:1.8}
+.metric-tabs{flex-wrap:wrap;justify-content:flex-end}

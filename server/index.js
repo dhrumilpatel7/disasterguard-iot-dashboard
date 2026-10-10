@@ -48,10 +48,10 @@ function broadcast() { for (const client of clients) send(client); }
 function parseTelemetry(buffer) {
   const message = JSON.parse(buffer.toString());
   const sensors = message.sensors ?? message;
-  const { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected } = sensors;
+  const { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected } = sensors;
   if (![gasRaw, lightRaw].every((value) => Number.isInteger(value) && value >= 0 && value <= 4095)) throw new Error('gasRaw and lightRaw must be ADC readings from 0 to 4095');
-  if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, and vibrationDetected must be booleans');
-  return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected };
+  if (![rainDetected, objectDetected, vibrationDetected, lightningDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, vibrationDetected, and lightningDetected must be booleans');
+  return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected };
 }
 
 const brokerUrl = process.env.MQTT_URL;
@@ -83,7 +83,7 @@ if (brokerUrl && brokerProtocolIsSecure) {
       const receivedAt = Date.now();
       const sensors = parseTelemetry(payload);
       latest = { sensors, receivedAt };
-      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected });
+      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected });
       if (history.length > historyLimit) history.shift();
       broadcast();
     }

@@ -11,19 +11,31 @@ constexpr uint8_t IR_OUT_PIN = 26;
 constexpr uint8_t SW420_DO_PIN = 25;
 constexpr uint8_t LDR_PIN = 34;
 
-// Many comparator modules are active-low; confirm on your specific boards.
+// Match the polarity verified in the standalone sensor performance sketch.
 constexpr bool RAIN_ACTIVE_LOW = true;
 constexpr bool IR_ACTIVE_LOW = true;
-constexpr bool VIBRATION_ACTIVE_LOW = true;
+constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
+constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
+constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 50;
 
 constexpr char MQTT_HOST[] = "o1fbc6cf.ala.asia-southeast1.emqxsl.com";
 constexpr uint16_t MQTT_PORT = 8883;
 constexpr char MQTT_TOPIC[] = "disasterguard/esp32-01/telemetry";
-constexpr uint32_t PUBLISH_INTERVAL_MS = 5000;
+// Publish twice a second for a responsive dashboard without flooding the broker.
+constexpr uint32_t PUBLISH_INTERVAL_MS = 500;
 
 WiFiClientSecure tlsClient;
 PubSubClient mqttClient(tlsClient);
 uint32_t lastPublishAt = 0;
+uint32_t lastSampleAt = 0;
+uint32_t lightningDetectedAt = 0;
+int gasRaw = 0;
+int lightRaw = 0;
+int previousLight = 0;
+bool rainDetected = false;
+bool objectDetected = false;
+bool vibrationDetected = false;
+bool lightningDetected = false;
 
 bool readActive(uint8_t pin, bool activeLow) {
   const int level = digitalRead(pin);
@@ -94,23 +106,36 @@ void connectMqtt() {
   }
 }
 
-void publishTelemetry() {
-  const int gasRaw = analogRead(MQ135_PIN);
-  const int lightRaw = analogRead(LDR_PIN);
-  const bool rainDetected = readActive(RAIN_DO_PIN, RAIN_ACTIVE_LOW);
-  const bool objectDetected = readActive(IR_OUT_PIN, IR_ACTIVE_LOW);
-  const bool vibrationDetected = readActive(SW420_DO_PIN, VIBRATION_ACTIVE_LOW);
+void sampleSensors(uint32_t now) {
+  gasRaw = analogRead(MQ135_PIN);
+  lightRaw = analogRead(LDR_PIN);
+  rainDetected = readActive(RAIN_DO_PIN, RAIN_ACTIVE_LOW);
+  objectDetected = readActive(IR_OUT_PIN, IR_ACTIVE_LOW);
+  // The user's verified SW-420 code uses HIGH as the active vibration state.
+  vibrationDetected = digitalRead(SW420_DO_PIN) == HIGH;
 
-  char payload[256];
+  // A sudden drop in the LDR ADC value is treated as a bright flash.
+  if (previousLight - lightRaw >= LIGHTNING_SPIKE_THRESHOLD) {
+    lightningDetected = true;
+    lightningDetectedAt = now;
+  } else if (lightningDetected && now - lightningDetectedAt >= LIGHTNING_DISPLAY_MS) {
+    lightningDetected = false;
+  }
+  previousLight = lightRaw;
+}
+
+void publishTelemetry() {
+  char payload[300];
   snprintf(
       payload,
       sizeof(payload),
-      "{\"deviceId\":\"esp32-01\",\"sensors\":{\"gasRaw\":%d,\"lightRaw\":%d,\"rainDetected\":%s,\"objectDetected\":%s,\"vibrationDetected\":%s}}",
+      "{\"deviceId\":\"esp32-01\",\"sensors\":{\"gasRaw\":%d,\"lightRaw\":%d,\"rainDetected\":%s,\"objectDetected\":%s,\"vibrationDetected\":%s,\"lightningDetected\":%s}}",
       gasRaw,
       lightRaw,
       rainDetected ? "true" : "false",
       objectDetected ? "true" : "false",
-      vibrationDetected ? "true" : "false");
+      vibrationDetected ? "true" : "false",
+      lightningDetected ? "true" : "false");
 
   if (mqttClient.publish(MQTT_TOPIC, payload)) {
     Serial.printf("Published: %s\n", payload);
@@ -123,9 +148,9 @@ void setup() {
   Serial.begin(115200);
   pinMode(RAIN_DO_PIN, INPUT);  // GPIO35 is input-only and has no internal pull-up.
   pinMode(IR_OUT_PIN, INPUT);
-  // Hold the input HIGH while the SW-420 module is disconnected so it cannot float into a false alert.
-  pinMode(SW420_DO_PIN, INPUT_PULLUP);
+  pinMode(SW420_DO_PIN, INPUT);
   analogReadResolution(12);
+  previousLight = analogRead(LDR_PIN);
 
   tlsClient.setCACert(MQTT_ROOT_CA);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
@@ -142,6 +167,10 @@ void loop() {
   mqttClient.loop();
 
   const uint32_t now = millis();
+  if (now - lastSampleAt >= SENSOR_SAMPLE_INTERVAL_MS) {
+    lastSampleAt = now;
+    sampleSensors(now);
+  }
   if (now - lastPublishAt >= PUBLISH_INTERVAL_MS) {
     lastPublishAt = now;
     publishTelemetry();

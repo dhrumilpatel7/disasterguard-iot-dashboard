@@ -7,6 +7,7 @@ const cards = [
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading' },
   { key: 'rainDetected', title: 'Rain', icon: '⌁', detail: 'Rain sensor · GPIO 35', kind: 'boolean', active: 'Rain detected', clear: 'No rain detected' },
   { key: 'vibrationDetected', title: 'Vibration', icon: '〰', detail: 'SW-420 · GPIO 25', kind: 'boolean', active: 'Vibration detected', clear: 'No vibration detected' },
+  { key: 'lightningDetected', title: 'Lightning', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected' },
 ];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 
@@ -23,11 +24,11 @@ function SensorCard({ card, value, online }) {
 }
 
 function TrendChart({ history, metric }) {
-  const isVibration = metric === 'vibrationDetected';
-  const values = history.map((point) => point[metric]).filter((value) => isVibration ? typeof value === 'boolean' : Number.isFinite(value));
+  const isBooleanMetric = metric === 'vibrationDetected' || metric === 'lightningDetected';
+  const values = history.map((point) => point[metric]).filter((value) => isBooleanMetric ? typeof value === 'boolean' : Number.isFinite(value));
   const chart = useMemo(() => {
     if (values.length < 2) return '';
-    if (isVibration) {
+    if (isBooleanMetric) {
       return values.map((active, index) => {
         const x = (index / (values.length - 1)) * 100;
         const y = active ? 10 : 33;
@@ -41,11 +42,11 @@ function TrendChart({ history, metric }) {
     const spread = max - min || 1;
     return values.map((value, index) => `${(index / (values.length - 1)) * 100},${36 - ((value - min) / spread) * 28}`).join(' ');
   }, [history, metric]);
-  const label = isVibration ? 'Vibration' : metric === 'gasRaw' ? 'Gas' : 'Light';
-  return <svg className={`trend-chart${isVibration ? ' binary-chart' : ''}`} viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${label} recent readings trend`}>
-    <line x1="0" y1={isVibration ? 10 : 38} x2="100" y2={isVibration ? 10 : 38} className="chart-axis" />
-    {isVibration && <line x1="0" y1="33" x2="100" y2="33" className="chart-axis" />}
-    {chart ? isVibration ? <path d={chart} className="chart-line" /> : <polyline points={chart} className="chart-line" /> : <text x="50" y="22" textAnchor="middle" className="chart-empty">Waiting for readings</text>}
+  const label = metric === 'vibrationDetected' ? 'Vibration' : metric === 'lightningDetected' ? 'Lightning' : metric === 'gasRaw' ? 'Gas' : 'Light';
+  return <svg className={`trend-chart${isBooleanMetric ? ' binary-chart' : ''}`} viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${label} recent readings trend`}>
+    <line x1="0" y1={isBooleanMetric ? 10 : 38} x2="100" y2={isBooleanMetric ? 10 : 38} className="chart-axis" />
+    {isBooleanMetric && <line x1="0" y1="33" x2="100" y2="33" className="chart-axis" />}
+    {chart ? isBooleanMetric ? <path d={chart} className="chart-line" /> : <polyline points={chart} className="chart-line" /> : <text x="50" y="22" textAnchor="middle" className="chart-empty">Waiting for readings</text>}
   </svg>;
 }
 
@@ -79,9 +80,9 @@ export default function Dashboard() {
     <section className="section-head"><div><p className="overline">SENSOR ARRAY</p><h2>Live conditions</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Last update ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32 to send data'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={data.sensors?.[card.key]} online={online} />)}</section>
     <section className="trend-panel">
-      <div className="trend-heading"><div><p className="overline">RECENT TELEMETRY</p><h2>Reading history</h2></div><div className="metric-tabs" role="group" aria-label="Choose chart sensor"><button className={metric === 'gasRaw' ? 'selected' : ''} onClick={() => setMetric('gasRaw')}>Gas</button><button className={metric === 'lightRaw' ? 'selected' : ''} onClick={() => setMetric('lightRaw')}>Light</button><button className={metric === 'vibrationDetected' ? 'selected' : ''} onClick={() => setMetric('vibrationDetected')}>Vibration</button></div></div>
+      <div className="trend-heading"><div><p className="overline">RECENT TELEMETRY</p><h2>Reading history</h2></div><div className="metric-tabs" role="group" aria-label="Choose chart sensor"><button className={metric === 'gasRaw' ? 'selected' : ''} onClick={() => setMetric('gasRaw')}>Gas</button><button className={metric === 'lightRaw' ? 'selected' : ''} onClick={() => setMetric('lightRaw')}>Light</button><button className={metric === 'vibrationDetected' ? 'selected' : ''} onClick={() => setMetric('vibrationDetected')}>Vibration</button><button className={metric === 'lightningDetected' ? 'selected' : ''} onClick={() => setMetric('lightningDetected')}>Lightning</button></div></div>
       <TrendChart history={data.history || []} metric={metric} />
-      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples` : 'Chart fills as real readings arrive'}</span><span>{metric === 'vibrationDetected' ? 'DIGITAL STATE · ACTIVE / CLEAR' : 'RAW ADC · 0–4095'}</span></div>
+      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples` : 'Chart fills as real readings arrive'}</span><span>{metric === 'vibrationDetected' || metric === 'lightningDetected' ? 'DIGITAL STATE · ACTIVE / CLEAR' : 'RAW ADC · 0–4095'}</span></div>
     </section>
     <section className="status-strip"><div className="strip-icon">i</div><div><strong>{online ? 'Monitoring is active' : 'Sensor data will appear here'}</strong><p>{online ? 'Values update as your ESP32 publishes new telemetry.' : 'Connect the ESP32 and configure the MQTT broker to begin live monitoring.'}</p></div><span className="strip-code">DG / 01</span></section>
     <footer><span>DISASTERGUARD <span className="footer-dot">·</span> REMOTE SENSOR NETWORK</span><span>MQTT <span className="footer-status">{data.mqtt === 'connected' ? 'CONNECTED' : 'NOT CONNECTED'}</span></span></footer>
