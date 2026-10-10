@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: disasterguard-dashboard
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: MQTT_TOPIC
+        value: disasterguard/esp32-01/telemetry
+      - key: DEVICE_ID
+        value: esp32-01
