@@ -71,6 +71,7 @@ button,input{font:inherit}
 .unit{font:9px 'DM Mono',monospace;color:#8292a8;letter-spacing:0}
 .gas-meter{height:4px;background:#28364a;border-radius:5px;margin-top:8px;overflow:hidden}
 .gas-meter span{height:100%;display:block;background:linear-gradient(90deg,var(--cyan),var(--orange),var(--red));border-radius:5px;transition:width .25s}
+.model-detail{font:9px 'DM Mono',monospace;color:#8fa5be;margin-top:7px}
 .card-foot{display:flex;justify-content:space-between;gap:6px;align-items:center;border-top:1px solid #29374b;margin-top:auto;padding-top:10px;color:#8190a5;font:9px 'DM Mono',monospace}
 .card-state{color:#91a2b8;white-space:nowrap}
 .alert .card-state{color:#ff8f9b}
@@ -123,6 +124,7 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .shell.light .sensor-card.selected{background:#f5faff}
 .shell.light .card-foot{border-color:#e2e8ef;color:#71839a}
 .shell.light .card-state,.shell.light .unit{color:#62748b}
+.shell.light .model-detail{color:#62748b}
 .shell.light .waiting .reading{color:#8796a7}
 .shell.light .incident-banner{background:#fff}
 .shell.light .incident-banner.critical{background:linear-gradient(105deg,#fff1f1,#fff);border-color:#e7aeb5}

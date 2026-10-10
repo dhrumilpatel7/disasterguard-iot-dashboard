@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import mqtt from 'mqtt';
+import { scoreIsolationForest, trainIsolationForest } from './isolationForest.js';
 
 const app = express();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -13,8 +14,13 @@ const port = Number(process.env.PORT || 3001);
 const topic = process.env.MQTT_TOPIC || 'disasterguard/esp32-01/telemetry';
 const staleAfterMs = 30_000;
 const historyLimit = 120;
+const mlCalibrationCount = 120;
+const mlAlertThreshold = 0.65;
 let mqttState = process.env.MQTT_URL ? 'connecting' : 'not_configured';
 let latest = null;
+let mlModel = null;
+const mlCalibrationSamples = [];
+const knownBinaryStates = Array.from({ length: 4 }, () => new Set());
 const history = [];
 const clients = new Set();
 
@@ -40,6 +46,7 @@ function snapshot() {
     deviceId: process.env.DEVICE_ID || 'esp32-01',
     lastSeen: latest?.receivedAt ?? null,
     sensors: latest?.sensors ?? null,
+    ml: latest?.ml ?? { status: 'calibrating', samples: mlCalibrationSamples.length, required: mlCalibrationCount, score: null, anomaly: false, threshold: mlAlertThreshold },
     history,
   };
 }
@@ -53,6 +60,42 @@ function parseTelemetry(buffer) {
   if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, and vibrationDetected must be booleans');
   if (lightningDetected !== undefined && typeof lightningDetected !== 'boolean') throw new Error('lightningDetected must be a boolean when provided');
   return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected: lightningDetected ?? null };
+}
+
+function sensorFeatures(sensors) {
+  return [
+    sensors.gasRaw,
+    sensors.lightRaw,
+    sensors.rainDetected ? 1 : 0,
+    sensors.objectDetected ? 1 : 0,
+    sensors.vibrationDetected ? 1 : 0,
+    sensors.lightningDetected === true ? 1 : 0,
+  ];
+}
+
+function evaluateAnomaly(sensors) {
+  const features = sensorFeatures(sensors);
+  if (!mlModel) {
+    mlCalibrationSamples.push(features);
+    if (mlCalibrationSamples.length >= mlCalibrationCount) {
+      mlModel = trainIsolationForest(mlCalibrationSamples);
+      for (let feature = 2; feature < features.length; feature++) {
+        for (const sample of mlCalibrationSamples) knownBinaryStates[feature - 2].add(sample[feature]);
+      }
+    }
+    return { status: mlModel ? 'ready' : 'calibrating', samples: mlCalibrationSamples.length, required: mlCalibrationCount, score: null, anomaly: false, threshold: mlAlertThreshold };
+  }
+
+  let score = scoreIsolationForest(mlModel, features);
+  let newBinaryState = false;
+  for (let feature = 2; feature < features.length; feature++) {
+    const knownStates = knownBinaryStates[feature - 2];
+    if (!knownStates.has(features[feature])) newBinaryState = true;
+    knownStates.add(features[feature]);
+  }
+  if (newBinaryState) score = Math.max(score, 0.75);
+  score = Number(score.toFixed(3));
+  return { status: 'ready', samples: mlCalibrationCount, required: mlCalibrationCount, score, anomaly: score >= mlAlertThreshold, threshold: mlAlertThreshold };
 }
 
 const brokerUrl = process.env.MQTT_URL;
@@ -83,8 +126,9 @@ if (brokerUrl && brokerProtocolIsSecure) {
     try {
       const receivedAt = Date.now();
       const sensors = parseTelemetry(payload);
-      latest = { sensors, receivedAt };
-      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected });
+      const ml = evaluateAnomaly(sensors);
+      latest = { sensors, ml, receivedAt };
+      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected, mlScore: ml.score, mlAnomaly: ml.anomaly });
       if (history.length > historyLimit) history.shift();
       broadcast();
     }

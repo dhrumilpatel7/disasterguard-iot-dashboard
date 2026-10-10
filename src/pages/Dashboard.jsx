@@ -17,27 +17,32 @@ const cards = [
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected', chart: 'lightningDetected' },
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading', chart: 'lightRaw' },
+  { key: 'mlScore', title: 'ML pattern watch', icon: 'AI', detail: 'Isolation Forest · sensor patterns', kind: 'model', active: 'Unusual sensor pattern', clear: 'Pattern within baseline', chart: 'mlScore' },
 ];
 const chartOptions = [
-  ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['vibrationDetected', 'Earthquake'],
+  ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['mlScore', 'ML score'], ['vibrationDetected', 'Earthquake'],
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
 ];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 
-function SensorCard({ card, value, online, gasThreshold, onSelect, selected }) {
-  const hasValue = online && value !== undefined && value !== null;
+function SensorCard({ card, value, online, gasThreshold, model, onSelect, selected }) {
+  const modelReady = card.kind === 'model' && model?.status === 'ready' && model.score !== null;
+  const hasValue = online && (card.kind === 'model' ? modelReady : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
-  const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'boolean' && value);
-  const display = !hasValue ? 'Awaiting data'
+  const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? model.anomaly : card.kind === 'boolean' && value);
+  const display = !hasValue ? card.kind === 'model' && online ? `Training ${model?.samples ?? 0}/${model?.required ?? 120}` : 'Awaiting data'
     : card.kind === 'gas' ? gasAlert ? 'Possible fire / gas hazard' : value.toLocaleString()
+      : card.kind === 'model' ? `${Math.round(model.score * 100)} / 100`
       : card.kind === 'reading' ? value.toLocaleString() : value ? card.active : card.clear;
-  const state = !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' ? 'reading' : 'normal';
+  const state = !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' || card.kind === 'model' ? 'reading' : 'normal';
+  const footerState = state === 'waiting' ? card.kind === 'model' && online ? `Learning ${model?.samples ?? 0}/${model?.required ?? 120}` : 'Waiting' : triggered ? 'Alert' : card.kind === 'model' ? 'Model ready' : 'Live';
   return <button type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
     <span className="card-top"><span className="sensor-icon">{card.icon}</span><span className={`state-dot ${state}`} /></span>
     <span className="eyebrow">{card.title}</span>
-    <span className={`reading${gasAlert ? ' long-reading' : ''}`}>{display}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
+    <span className={`reading${gasAlert ? ' long-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> anomaly score</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
     {card.kind === 'gas' && hasValue && <span className="gas-meter" aria-label={`Gas reading ${value} of 4095`}><span style={{ width: `${Math.min((value / 4095) * 100, 100)}%` }} /></span>}
-    <span className="card-foot"><span>{card.detail}</span><span className="card-state">{state === 'waiting' ? 'Waiting' : triggered ? 'Alert' : 'Live'}</span></span>
+    {card.kind === 'model' && <span className="model-detail">{model?.status === 'ready' ? `${model.samples} baseline samples · alert above ${Math.round(model.threshold * 100)}` : 'Learning a normal sensor baseline'}</span>}
+    <span className="card-foot"><span>{card.detail}</span><span className="card-state">{footerState}</span></span>
   </button>;
 }
 
@@ -93,6 +98,7 @@ export default function Dashboard() {
     sensors.vibrationDetected ? 'Possible earthquake' : null,
     sensors.rainDetected ? 'Storm warning · rain detected' : null,
     sensors.lightningDetected ? 'Lightning detected' : null,
+    data.ml?.anomaly ? 'Unusual sensor pattern' : null,
   ].filter(Boolean) : [];
   const mqttLabel = ({ connected: 'Secure broker connected', connecting: 'Connecting to broker', disconnected: 'Broker disconnected', not_configured: 'Broker not configured', invalid_config: 'Secure broker URL required', unavailable: 'Dashboard server unavailable' })[data.mqtt] || 'Broker status unknown';
   return <main className={`shell ${theme}`}>
@@ -110,7 +116,7 @@ export default function Dashboard() {
       <div className="incident-count"><strong>{online ? String(activeAlerts.length).padStart(2, '0') : '—'}</strong><span>{online ? 'ALERTS' : 'STATUS'}</span></div>
     </section>
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
-    <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
+    <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
     <section className="threshold-panel">
       <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local setting · 0–1500 raw MQ-135 ADC</small></div></div>
       <input aria-label="Gas alert threshold" type="range" min={GAS_ALERT_MIN} max={GAS_ALERT_MAX} step="10" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} />
@@ -121,7 +127,7 @@ export default function Dashboard() {
       <div className="trend-heading"><div><p className="overline">FIELD TELEMETRY / LAST {data.history?.length || 0} SAMPLES</p><h2>Signal history</h2></div><span className="chart-live"><i /> LIVE STREAM</span></div>
       <div className="metric-tabs" role="group" aria-label="Choose chart sensor">{chartOptions.map(([key, label]) => <button key={key} className={metric === key ? 'selected' : ''} aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}</div>
       <TrendChart history={data.history || []} metric={metric} />
-      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
+      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'mlScore' ? `ANOMALY SCORE · ALERT AT ${Math.round((data.ml?.threshold || 0.65) * 100)}` : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
     </section>
     <footer><span>DISASTERGUARD <span className="footer-dot">·</span> FIELD INCIDENT MONITORING</span><span>MQTT <span className="footer-status">{data.mqtt === 'connected' ? 'CONNECTED' : 'NOT CONNECTED'}</span></span></footer>
   </main>;
