@@ -31,7 +31,7 @@ button,input{font:inherit}
 .connection strong{font:500 11px 'DM Mono',monospace;letter-spacing:.5px;display:block}
 .connection small{color:var(--muted);font:10px 'DM Mono',monospace;display:block;margin-top:6px}
 .connection-chevron{color:#93a6bf;margin-left:auto}
-.incident-banner{display:flex;align-items:center;gap:15px;border:1px solid var(--line);border-radius:9px;padding:17px 19px;margin:0 0 34px;background:linear-gradient(105deg,#111c2b,#111827);transition:border-color .2s,background .2s,box-shadow .2s}
+.incident-banner{display:flex;flex-wrap:wrap;align-items:center;gap:15px;border:1px solid var(--line);border-radius:9px;padding:17px 19px;margin:0 0 34px;background:linear-gradient(105deg,#111c2b,#111827);transition:border-color .2s,background .2s,box-shadow .2s}
 .incident-banner.critical{border-color:#813d48;background:linear-gradient(105deg,#351a25,#171924);box-shadow:inset 3px 0 var(--red),0 12px 34px #ff59680d}
 .incident-banner.clear{border-color:#2c5360;background:linear-gradient(105deg,#112433,#121c2b);box-shadow:inset 3px 0 var(--cyan)}
 .incident-banner.unavailable{box-shadow:inset 3px 0 #78869a}
@@ -43,10 +43,21 @@ button,input{font:inherit}
 .incident-copy strong{font:600 14px Manrope,sans-serif;color:var(--text);line-height:1.5}
 .critical .incident-copy strong{color:#ffc1c5}
 .incident-copy small{font-size:11px;color:#a1afc0}
-.incident-count{margin-left:auto;padding-left:20px;border-left:1px solid #37465c;display:flex;flex-direction:column;align-items:center;gap:3px;flex:none}
+.incident-count{margin-left:auto;padding:0 0 0 20px;border:0;border-left:1px solid #37465c;background:transparent;display:flex;flex-direction:column;align-items:center;gap:3px;flex:none;color:inherit;cursor:pointer;border-radius:0 5px 5px 0}
+.incident-count:hover strong{transform:scale(1.08)}
+.incident-count:focus-visible{outline:2px solid var(--cyan);outline-offset:5px}
 .incident-count strong{font:700 22px 'DM Mono',monospace;color:var(--red)}
 .clear .incident-count strong{color:var(--cyan)}
 .incident-count span{font:9px 'DM Mono',monospace;letter-spacing:1px;color:var(--muted)}
+.incident-count .incident-toggle{font-size:12px;line-height:10px;color:var(--cyan)}
+.incident-details{display:flex;flex-wrap:wrap;gap:8px;width:100%;padding:12px 0 0 53px;border-top:1px solid #35445a;animation:incident-open .18s ease-out}
+.incident-details[hidden]{display:none}
+.incident-details p{margin:0;color:var(--muted);font-size:11px}
+.incident-chip{display:flex;align-items:center;gap:12px;border:1px solid #75404a;border-radius:7px;background:#281b27;color:#ffc1c5;padding:9px 11px;text-align:left;font:500 11px Manrope,sans-serif;cursor:pointer;transition:background .16s,border-color .16s,transform .16s}
+.incident-chip:hover{background:#38202c;border-color:var(--red);transform:translateY(-1px)}
+.incident-chip span{font:9px 'DM Mono',monospace;color:#d3a8ae;white-space:nowrap}
+.incident-chip:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+@keyframes incident-open{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .section-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:17px}
 .section-head .overline{margin-bottom:7px}
 .section-head h2{font:600 21px Manrope,sans-serif;letter-spacing:-.5px;margin:0}
@@ -146,6 +157,9 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .shell.light .critical .incident-symbol{background:#fff0f0;color:#c93248;border-color:#f1cdd1}
 .shell.light .clear .incident-symbol{background:#e8f8fb;color:#087f99;border-color:#c5e7ed}
 .shell.light .incident-count{border-color:#d3ddea}
+.shell.light .incident-chip{background:#fff5f4;color:#9e2638;border-color:#e4afb7}
+.shell.light .incident-chip:hover{background:#ffebeb;border-color:#c93248}
+.shell.light .incident-chip span{color:#7b4f58}
 .shell.light .threshold-icon{background:#fff3e8;color:#b9651c}
 .shell.light .threshold-copy small,.shell.light .sensor-note{color:#62748b}
 .shell.light .threshold-panel output{color:#955017}
@@ -196,6 +210,6 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .shell.light .model-status{background:#fff5e8;color:#955017;border-color:#efd0a8}
 .shell.light .model-status.ready{background:#e7f8fb;color:#176c83;border-color:#b5dce3}
 
-@media(max-width:760px){.shell{padding:0 22px}.topbar{height:72px}.top-meta{font-size:0;gap:7px}.top-meta .top-divider{display:none}.hero{align-items:flex-start;flex-direction:column;gap:22px;padding:50px 0 32px}.hero h1{letter-spacing:-1.6px}.connection{width:100%}.incident-banner{margin-bottom:28px;padding:14px}.incident-copy strong{font-size:12px}.incident-copy small{font-size:10px}.sensor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{align-items:flex-start;gap:14px;flex-direction:column}.updated{font-size:9px}.sensor-card{min-height:174px;padding:15px}.threshold-panel{gap:12px;flex-wrap:wrap}.threshold-copy{min-width:100%}.threshold-panel input{flex:1;min-width:120px}.trend-panel{padding:15px}.metric-tabs{justify-content:flex-start;margin-left:0}.chart-caption{font-size:8px}.sensor-note{line-height:1.7}.shell footer{font-size:8px}.ml-counts{grid-template-columns:repeat(2,minmax(0,1fr))}.ml-key{align-items:flex-start;flex-direction:column}.ml-key input{width:100%}}
+@media(max-width:760px){.shell{padding:0 22px}.topbar{height:72px}.top-meta{font-size:0;gap:7px}.top-meta .top-divider{display:none}.hero{align-items:flex-start;flex-direction:column;gap:22px;padding:50px 0 32px}.hero h1{letter-spacing:-1.6px}.connection{width:100%}.incident-banner{margin-bottom:28px;padding:14px}.incident-copy strong{font-size:12px}.incident-copy small{font-size:10px}.incident-details{padding-left:0}.incident-chip{max-width:100%;flex-wrap:wrap}.sensor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{align-items:flex-start;gap:14px;flex-direction:column}.updated{font-size:9px}.sensor-card{min-height:174px;padding:15px}.threshold-panel{gap:12px;flex-wrap:wrap}.threshold-copy{min-width:100%}.threshold-panel input{flex:1;min-width:120px}.trend-panel{padding:15px}.metric-tabs{justify-content:flex-start;margin-left:0}.chart-caption{font-size:8px}.sensor-note{line-height:1.7}.shell footer{font-size:8px}.ml-counts{grid-template-columns:repeat(2,minmax(0,1fr))}.ml-key{align-items:flex-start;flex-direction:column}.ml-key input{width:100%}}
 @media(max-width:430px){.sensor-grid{grid-template-columns:1fr}.sensor-card{min-height:155px}.top-actions{gap:8px}.toggle-label{display:none}.theme-toggle{padding:7px 9px}.incident-count{padding-left:12px}.incident-copy{gap:5px}.chart-caption{flex-direction:column}.trend-heading .overline{font-size:9px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}

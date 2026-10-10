@@ -37,7 +37,7 @@ function SensorCard({ card, value, online, gasThreshold, model, onSelect, select
       : card.kind === 'reading' ? value.toLocaleString() : value ? card.active : card.clear;
   const state = !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' || card.kind === 'model' ? 'reading' : 'normal';
   const footerState = state === 'waiting' ? card.kind === 'model' && online ? `${model?.total ?? 0} labeled` : 'Waiting' : triggered ? 'Review' : card.kind === 'model' ? 'Model ready' : 'Live';
-  return <button type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
+  return <button id={`sensor-${card.key}`} type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
     <span className="card-top"><span className="sensor-icon">{card.icon}</span><span className={`state-dot ${state}`} /></span>
     <span className="eyebrow">{card.title}</span>
     <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {Math.round(model.prediction.confidence * 100)}% leaf match</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
@@ -104,6 +104,7 @@ export default function Dashboard() {
   const [data, setData] = useState(initial);
   const [theme, setTheme] = useState(() => localStorage.getItem('dg-theme') || 'dark');
   const [metric, setMetric] = useState('gasRaw');
+  const [incidentsExpanded, setIncidentsExpanded] = useState(false);
   const [gasThreshold, setGasThreshold] = useState(savedGasThreshold);
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('dg-ml-admin-token') || '');
   const [trainingLabel, setTrainingLabel] = useState('normal');
@@ -176,13 +177,19 @@ export default function Dashboard() {
   const online = data.device === 'online';
   const sensors = data.sensors;
   const activeAlerts = online && sensors ? [
-    sensors.gasRaw >= gasThreshold ? 'Possible fire / gas hazard' : null,
-    sensors.vibrationDetected ? 'Possible earthquake' : null,
-    sensors.rainDetected ? 'Storm warning · rain detected' : null,
-    sensors.objectDetected ? 'Object detected' : null,
-    sensors.lightningDetected ? 'Lightning detected' : null,
-    data.ml?.prediction?.warning && data.ml.prediction.confidence >= 0.75 ? `ML suggests: ${data.ml.prediction.label}` : null,
+    sensors.gasRaw >= gasThreshold ? { key: 'gasRaw', label: 'Possible fire / gas hazard' } : null,
+    sensors.vibrationDetected ? { key: 'vibrationDetected', label: 'Possible earthquake' } : null,
+    sensors.rainDetected ? { key: 'rainDetected', label: 'Storm warning · rain detected' } : null,
+    sensors.objectDetected ? { key: 'objectDetected', label: 'Object detected' } : null,
+    sensors.lightningDetected ? { key: 'lightningDetected', label: 'Lightning detected' } : null,
+    data.ml?.prediction?.warning && data.ml.prediction.confidence >= 0.75 ? { key: 'modelClass', label: `ML pattern · ${data.ml.prediction.label}` } : null,
   ].filter(Boolean) : [];
+  function openSignal(key) {
+    const card = cards.find((item) => item.key === key || item.chart === key);
+    const chartKey = card?.chart || card?.key || key;
+    setMetric(chartKey);
+    document.getElementById(`sensor-${card?.key || key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
   const mqttLabel = ({ connected: 'Secure broker connected', connecting: 'Connecting to broker', disconnected: 'Broker disconnected', not_configured: 'Broker not configured', invalid_config: 'Secure broker URL required', unavailable: 'Dashboard server unavailable' })[data.mqtt] || 'Broker status unknown';
   return <main className={`shell ${theme}`}>
     <header className="topbar">
@@ -193,10 +200,11 @@ export default function Dashboard() {
       <div><p className="overline"><span className="live-indicator" /> DISASTERGUARD / COMMAND CENTER</p><h1>Situational awareness.<br /><em>Every signal matters.</em></h1><p className="hero-copy">Remote field monitoring for environmental hazards and incident response.</p></div>
       <div className={`connection ${online ? 'online' : ''}`}><span className="connection-dot" /><div><strong>{online ? 'FIELD UNIT ONLINE' : 'FIELD UNIT OFFLINE'}</strong><small>{mqttLabel}</small></div><span className="connection-chevron">↗</span></div>
     </section>
-    <section className={`incident-banner ${!online ? 'unavailable' : activeAlerts.length ? 'critical' : 'clear'}`} aria-live="polite">
+    <section className={`incident-banner ${!online ? 'unavailable' : activeAlerts.length ? 'critical' : 'clear'}${incidentsExpanded ? ' expanded' : ''}`} aria-live="polite">
       <div className="incident-symbol">{!online ? '◌' : activeAlerts.length ? '!' : '✓'}</div>
-      <div className="incident-copy"><span className="incident-label">{!online ? 'AWAITING FIELD SIGNAL' : activeAlerts.length ? 'ACTIVE SENSOR SIGNALS' : 'SYSTEM STATUS'}</span><strong>{!online ? 'No current sensor telemetry' : activeAlerts.length ? activeAlerts.join('  ·  ') : 'No active hazards detected'}</strong><small>{!online ? 'The dashboard will show real readings when the ESP32 reconnects.' : activeAlerts.length ? 'Review each active signal in the sensor panel.' : 'All monitored signals are within configured alert conditions.'}</small></div>
-      <div className="incident-count"><strong>{online ? String(activeAlerts.length).padStart(2, '0') : '—'}</strong><span>{online ? 'SIGNALS' : 'STATUS'}</span></div>
+      <div className="incident-copy"><span className="incident-label">{!online ? 'AWAITING FIELD SIGNAL' : activeAlerts.length ? 'ACTIVE SENSOR SIGNALS' : 'SYSTEM STATUS'}</span><strong>{!online ? 'No current sensor telemetry' : activeAlerts.length ? `${activeAlerts.length} active ${activeAlerts.length === 1 ? 'signal' : 'signals'}` : 'No active hazards detected'}</strong><small>{!online ? 'The dashboard will show real readings when the ESP32 reconnects.' : activeAlerts.length ? 'Expand the signal count to review every active sensor.' : 'All monitored signals are within configured alert conditions.'}</small></div>
+      <button className="incident-count" type="button" aria-expanded={incidentsExpanded} aria-controls="incident-details" onClick={() => setIncidentsExpanded((expanded) => !expanded)} title={incidentsExpanded ? 'Hide signal details' : 'Show all active signals'}><strong>{online ? String(activeAlerts.length).padStart(2, '0') : '—'}</strong><span>{online ? 'SIGNALS' : 'STATUS'}</span><span className="incident-toggle" aria-hidden="true">{incidentsExpanded ? '⌃' : '⌄'}</span></button>
+      <div className="incident-details" id="incident-details" hidden={!incidentsExpanded}>{!online ? <p>Waiting for live sensor readings.</p> : activeAlerts.length ? activeAlerts.map((alert) => <button className="incident-chip" type="button" key={alert.key} onClick={() => openSignal(alert.key)}>{alert.label}<span>View sensor ↗</span></button>) : <p>No active signals right now. This panel updates as new readings arrive.</p>}</div>
     </section>
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
