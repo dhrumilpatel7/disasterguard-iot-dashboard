@@ -12,6 +12,17 @@ For the recommended EMQX Cloud Serverless setup, create a deployment, add an MQT
 
 Never commit `.env` or put broker credentials in frontend code.
 
+## Supervised sensor-pattern model
+
+The old unsupervised anomaly score has been removed. The replacement is a small, explainable multiclass decision tree trained from real MQTT readings that you label in the dashboard. It does not invent labels or train itself on an assumed “normal” startup period.
+
+1. Configure `ML_ADMIN_TOKEN` as a private environment variable on the server. Render Blueprints can generate it with `generateValue: true`; for an existing service, add it in the Render Environment settings. Enter that same key in the dashboard's training panel.
+2. With the ESP32 online, select the condition you are actually observing and click **Record this condition**. Let it collect readings, then stop. Repeat for every category, including normal conditions. The model requires at least 20 readings for each category before training.
+3. Click **Train model**. The page shows the class counts and the model’s decision path for a prediction. “Leaf match” is the share of labeled examples in that tree leaf with the chosen label; it is not a calibrated probability.
+4. Download the labeled readings file as a backup. Import it later to restore training data.
+
+Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
+
 ## Telemetry contract
 
 Publish JSON to `MQTT_TOPIC` (default `disasterguard/esp32-01/telemetry`):
@@ -38,4 +49,4 @@ Run `npm run build`, then `npm start`. The Node server serves the built frontend
 
 The Arduino sketch and private credential template are in `firmware/`. Open `DisasterGuardESP32.ino` in Arduino IDE, install the `PubSubClient` library, copy `secrets.example.h` to `secrets.h`, then fill in Wi-Fi credentials, the ESP32-only MQTT account, and the CA certificate downloaded from the EMQX deployment Overview page. `secrets.h` is ignored by Git; never commit it or share its values.
 
-Power the ESP32 dev board by USB first. Before connecting the sensor outputs, verify that every sensor signal stays at or below 3.3 V. The sketch publishes raw ADC values (not calibrated ppm/lux) every five seconds. Confirm the active HIGH/LOW behavior for the rain, IR, and vibration modules; the defaults in the sketch are configurable. The dashboard marks the device offline if no valid message arrives for 30 seconds. Remote buzzer control is not included.
+Power the ESP32 dev board by USB first. Before connecting the sensor outputs, verify that every sensor signal stays at or below 3.3 V. The sketch samples at 50 ms and publishes routine telemetry every two seconds (alert starts may publish sooner). ADC values are raw, not calibrated ppm/lux. Confirm the active HIGH/LOW behavior for the rain, IR, and vibration modules; the defaults in the sketch are configurable. The dashboard marks the device offline if no valid message arrives for 30 seconds. Remote buzzer control is not included.

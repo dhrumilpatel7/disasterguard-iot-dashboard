@@ -2,3 +2,4 @@ node_modules/
 dist/
 .env
 firmware/**/secrets.h
+server/hazard-training.json

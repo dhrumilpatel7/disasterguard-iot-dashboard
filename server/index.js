@@ -1,32 +1,30 @@
 import 'dotenv/config';
+import { timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import mqtt from 'mqtt';
-import { scoreIsolationForest, trainIsolationForest } from './isolationForest.js';
+import { HAZARD_CLASSES, predictHazard, summarizeTraining, trainHazardTree } from './hazardModel.js';
 
 const app = express();
 const here = dirname(fileURLToPath(import.meta.url));
 const webDist = join(here, '..', 'dist');
+const trainingFile = join(here, 'hazard-training.json');
 const port = Number(process.env.PORT || 3001);
 const topic = process.env.MQTT_TOPIC || 'disasterguard/esp32-01/telemetry';
 const staleAfterMs = 30_000;
 const historyLimit = 120;
-const mlCalibrationCount = 120;
-const mlAlertThreshold = 0.65;
 let mqttState = process.env.MQTT_URL ? 'connecting' : 'not_configured';
 let latest = null;
-let mlModel = null;
-const mlCalibrationSamples = [];
-const knownBinaryStates = Array.from({ length: 4 }, () => new Set());
 const history = [];
 const clients = new Set();
 
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(express.json({ limit: '16kb' }));
+app.use(express.json({ limit: '8mb' }));
 app.get('/api/status', (_request, response) => response.json(snapshot()));
 app.get('/api/health', (_request, response) => response.json({ ok: true, mqtt: mqttState, time: Date.now() }));
 app.get('/api/events', (request, response) => {
@@ -38,6 +36,23 @@ app.get('/api/events', (request, response) => {
   request.on('close', () => { clearInterval(heartbeat); clients.delete(response); });
 });
 
+let labeledSamples = [];
+let capture = null;
+let hazardModel = null;
+let modelDirty = false;
+
+function mlSnapshot(sensors = latest?.sensors) {
+  const summary = summarizeTraining(labeledSamples);
+  const trained = Boolean(hazardModel && !modelDirty);
+  return {
+    status: trained ? 'ready' : hazardModel ? 'needs_retraining' : 'collecting',
+    adminEnabled: Boolean(process.env.ML_ADMIN_TOKEN),
+    ...summary,
+    capture: capture ? { active: true, label: capture.label, samplesAdded: capture.samplesAdded } : { active: false },
+    prediction: trained && sensors ? predictHazard(hazardModel, sensors) : null,
+  };
+}
+
 function snapshot() {
   const age = latest ? Date.now() - latest.receivedAt : null;
   return {
@@ -46,7 +61,7 @@ function snapshot() {
     deviceId: process.env.DEVICE_ID || 'esp32-01',
     lastSeen: latest?.receivedAt ?? null,
     sensors: latest?.sensors ?? null,
-    ml: latest?.ml ?? { status: 'calibrating', samples: mlCalibrationSamples.length, required: mlCalibrationCount, score: null, anomaly: false, threshold: mlAlertThreshold },
+    ml: mlSnapshot(),
     history,
   };
 }
@@ -58,45 +73,81 @@ function parseTelemetry(buffer) {
   const { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected } = sensors;
   if (![gasRaw, lightRaw].every((value) => Number.isInteger(value) && value >= 0 && value <= 4095)) throw new Error('gasRaw and lightRaw must be ADC readings from 0 to 4095');
   if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, and vibrationDetected must be booleans');
-  if (lightningDetected !== undefined && typeof lightningDetected !== 'boolean') throw new Error('lightningDetected must be a boolean when provided');
+  if (lightningDetected != null && typeof lightningDetected !== 'boolean') throw new Error('lightningDetected must be a boolean when provided');
   return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected: lightningDetected ?? null };
 }
 
-function sensorFeatures(sensors) {
-  return [
-    sensors.gasRaw,
-    sensors.lightRaw,
-    sensors.rainDetected ? 1 : 0,
-    sensors.objectDetected ? 1 : 0,
-    sensors.vibrationDetected ? 1 : 0,
-    sensors.lightningDetected === true ? 1 : 0,
-  ];
+function requireMlAdmin(request, response, next) {
+  const expected = process.env.ML_ADMIN_TOKEN;
+  if (!expected) return response.status(503).json({ error: 'ML_ADMIN_TOKEN is not configured on the server.' });
+  const authorization = request.get('authorization') || '';
+  const supplied = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (supplied.length !== expected.length || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
+    return response.status(401).json({ error: 'Enter the training access key configured on the server.' });
+  }
+  next();
 }
 
-function evaluateAnomaly(sensors) {
-  const features = sensorFeatures(sensors);
-  if (!mlModel) {
-    mlCalibrationSamples.push(features);
-    if (mlCalibrationSamples.length >= mlCalibrationCount) {
-      mlModel = trainIsolationForest(mlCalibrationSamples);
-      for (let feature = 2; feature < features.length; feature++) {
-        for (const sample of mlCalibrationSamples) knownBinaryStates[feature - 2].add(sample[feature]);
-      }
-    }
-    return { status: mlModel ? 'ready' : 'calibrating', samples: mlCalibrationSamples.length, required: mlCalibrationCount, score: null, anomaly: false, threshold: mlAlertThreshold };
-  }
-
-  let score = scoreIsolationForest(mlModel, features);
-  let newBinaryState = false;
-  for (let feature = 2; feature < features.length; feature++) {
-    const knownStates = knownBinaryStates[feature - 2];
-    if (!knownStates.has(features[feature])) newBinaryState = true;
-    knownStates.add(features[feature]);
-  }
-  if (newBinaryState) score = Math.max(score, 0.75);
-  score = Number(score.toFixed(3));
-  return { status: 'ready', samples: mlCalibrationCount, required: mlCalibrationCount, score, anomaly: score >= mlAlertThreshold, threshold: mlAlertThreshold };
+function cleanLabeledSamples(samples) {
+  if (!Array.isArray(samples) || samples.length > 20_000) throw new Error('Dataset must contain no more than 20,000 labeled readings.');
+  return samples.map((sample) => {
+    if (!HAZARD_CLASSES.some(({ id }) => id === sample.label)) throw new Error('Dataset contains an unknown label.');
+    return { label: sample.label, sensors: parseTelemetry({ sensors: sample.sensors }), at: Number.isFinite(sample.at) ? sample.at : Date.now() };
+  });
 }
+
+async function saveTrainingData() {
+  await writeFile(trainingFile, JSON.stringify({ version: 1, samples: labeledSamples }), 'utf8');
+}
+
+app.get('/api/ml/summary', (_request, response) => response.json(mlSnapshot()));
+app.post('/api/ml/capture', requireMlAdmin, (request, response) => {
+  const { label } = request.body || {};
+  if (!HAZARD_CLASSES.some((item) => item.id === label)) return response.status(400).json({ error: 'Choose a listed label before capturing readings.' });
+  if (capture) return response.status(409).json({ error: 'Stop the current capture before starting another label.' });
+  capture = { label, samplesAdded: 0 };
+  broadcast();
+  response.json(mlSnapshot());
+});
+app.delete('/api/ml/capture', requireMlAdmin, (_request, response) => {
+  capture = null;
+  broadcast();
+  response.json(mlSnapshot());
+});
+app.post('/api/ml/train', requireMlAdmin, (_request, response) => {
+  if (capture) return response.status(409).json({ error: 'Stop the current capture before training the model.' });
+  const summary = summarizeTraining(labeledSamples);
+  const missing = summary.classes.filter(({ id }) => summary.counts[id] < summary.minimumPerClass);
+  if (missing.length) return response.status(400).json({ error: `Collect at least ${summary.minimumPerClass} labeled readings for every category first. Still short: ${missing.map(({ label, id }) => `${label} (${summary.counts[id]}/${summary.minimumPerClass})`).join(', ')}.` });
+  hazardModel = trainHazardTree(labeledSamples);
+  modelDirty = false;
+  broadcast();
+  response.json(mlSnapshot());
+});
+app.get('/api/ml/export', requireMlAdmin, (_request, response) => {
+  response.setHeader('Content-Disposition', 'attachment; filename="disasterguard-labeled-readings.json"');
+  response.json({ version: 1, exportedAt: new Date().toISOString(), samples: labeledSamples });
+});
+app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
+  try {
+    const imported = cleanLabeledSamples(request.body?.samples);
+    labeledSamples = imported;
+    capture = null;
+    hazardModel = null;
+    modelDirty = false;
+    await saveTrainingData();
+    broadcast();
+    response.json(mlSnapshot());
+  } catch (error) { next(error); }
+});
+
+try {
+  const saved = JSON.parse(await readFile(trainingFile, 'utf8'));
+  labeledSamples = cleanLabeledSamples(saved.samples);
+  const counts = summarizeTraining(labeledSamples).counts;
+  if (HAZARD_CLASSES.every(({ id }) => counts[id] >= 20)) hazardModel = trainHazardTree(labeledSamples);
+  console.log(`Loaded ${labeledSamples.length} labeled ML readings.`);
+} catch (error) { if (error.code !== 'ENOENT') console.error('Could not load ML training data:', error.message); }
 
 const brokerUrl = process.env.MQTT_URL;
 let brokerProtocolIsSecure = false;
@@ -126,9 +177,18 @@ if (brokerUrl && brokerProtocolIsSecure) {
     try {
       const receivedAt = Date.now();
       const sensors = parseTelemetry(payload);
-      const ml = evaluateAnomaly(sensors);
-      latest = { sensors, ml, receivedAt };
-      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected, mlScore: ml.score, mlAnomaly: ml.anomaly });
+      latest = { sensors, receivedAt };
+      if (capture && labeledSamples.length < 20_000) {
+        labeledSamples.push({ label: capture.label, sensors, at: receivedAt });
+        capture.samplesAdded += 1;
+        modelDirty = Boolean(hazardModel);
+        saveTrainingData().catch((error) => console.error('Could not save ML training data:', error.message));
+      } else if (capture) {
+        capture = null;
+        console.warn('Stopped ML capture at 20,000 labeled readings.');
+      }
+      const prediction = mlSnapshot(sensors).prediction;
+      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected, modelClass: prediction?.classId ?? null });
       if (history.length > historyLimit) history.shift();
       broadcast();
     }

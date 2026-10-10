@@ -9,7 +9,7 @@ function savedGasThreshold() {
   const value = Number(saved);
   return Number.isFinite(value) ? Math.min(GAS_ALERT_MAX, Math.max(GAS_ALERT_MIN, value)) : GAS_ALERT_DEFAULT;
 }
-const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [] };
+const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [], ml: { status: 'collecting', total: 0, counts: {}, classes: [], prediction: null } };
 const cards = [
   { key: 'gasRaw', title: 'Fire / gas watch', icon: '♨', unit: 'ADC / 4095', detail: 'MQ-135 · GPIO 32', kind: 'gas' },
   { key: 'vibrationDetected', title: 'Earthquake watch', icon: '〰', detail: 'SW-420 vibration trigger · GPIO 25', kind: 'boolean', active: 'Possible earthquake detected', clear: 'No vibration detected', chart: 'vibrationDetected' },
@@ -17,40 +17,46 @@ const cards = [
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected', chart: 'lightningDetected' },
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading', chart: 'lightRaw' },
-  { key: 'mlScore', title: 'ML pattern watch', icon: 'AI', detail: 'Isolation Forest · sensor patterns', kind: 'model', active: 'Unusual sensor pattern', clear: 'Pattern within baseline', chart: 'mlScore' },
+  { key: 'hazardPrediction', title: 'ML signal classification', icon: 'AI', detail: 'Trained from labeled sensor readings', kind: 'model', active: 'Model suggests a sensor pattern', clear: 'No trained match', chart: 'modelClass' },
 ];
 const chartOptions = [
-  ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['mlScore', 'ML score'], ['vibrationDetected', 'Earthquake'],
+  ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['modelClass', 'ML class'], ['vibrationDetected', 'Vibration'],
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
 ];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 
 function SensorCard({ card, value, online, gasThreshold, model, onSelect, selected }) {
-  const modelReady = card.kind === 'model' && model?.status === 'ready' && model.score !== null;
-  const hasValue = online && (card.kind === 'model' ? modelReady : value !== undefined && value !== null);
+  const modelReady = card.kind === 'model' && model?.status === 'ready' && model.prediction;
+  const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
-  const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? model.anomaly : card.kind === 'boolean' && value);
-  const display = !hasValue ? card.kind === 'model' && online ? `Training ${model?.samples ?? 0}/${model?.required ?? 120}` : 'Awaiting data'
+  const modelAlert = card.kind === 'model' && hasValue && model.prediction.warning && model.prediction.confidence >= 0.6;
+  const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? modelAlert : card.kind === 'boolean' && value);
+  const display = !hasValue ? card.kind === 'model' && online ? model?.status === 'needs_retraining' ? 'Retrain after new labels' : 'Collect labeled readings' : 'Awaiting data'
     : card.kind === 'gas' ? gasAlert ? 'Possible fire / gas hazard' : value.toLocaleString()
-      : card.kind === 'model' ? `${Math.round(model.score * 100)} / 100`
+      : card.kind === 'model' ? model.prediction.label
       : card.kind === 'reading' ? value.toLocaleString() : value ? card.active : card.clear;
   const state = !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' || card.kind === 'model' ? 'reading' : 'normal';
-  const footerState = state === 'waiting' ? card.kind === 'model' && online ? `Learning ${model?.samples ?? 0}/${model?.required ?? 120}` : 'Waiting' : triggered ? 'Alert' : card.kind === 'model' ? 'Model ready' : 'Live';
+  const footerState = state === 'waiting' ? card.kind === 'model' && online ? `${model?.total ?? 0} labeled` : 'Waiting' : triggered ? 'Review' : card.kind === 'model' ? 'Model ready' : 'Live';
   return <button type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
     <span className="card-top"><span className="sensor-icon">{card.icon}</span><span className={`state-dot ${state}`} /></span>
     <span className="eyebrow">{card.title}</span>
-    <span className={`reading${gasAlert ? ' long-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> anomaly score</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
+    <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {Math.round(model.prediction.confidence * 100)}% leaf match</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
     {card.kind === 'gas' && hasValue && <span className="gas-meter" aria-label={`Gas reading ${value} of 4095`}><span style={{ width: `${Math.min((value / 4095) * 100, 100)}%` }} /></span>}
-    {card.kind === 'model' && <span className="model-detail">{model?.status === 'ready' ? `${model.samples} baseline samples · alert above ${Math.round(model.threshold * 100)}` : 'Learning a normal sensor baseline'}</span>}
+    {card.kind === 'model' && <span className="model-detail">{hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · train the model again' : 'Needs 20 labeled readings in each category'}</span>}
     <span className="card-foot"><span>{card.detail}</span><span className="card-state">{footerState}</span></span>
   </button>;
 }
 
 function TrendChart({ history, metric }) {
+  const isClassMetric = metric === 'modelClass';
   const isBooleanMetric = ['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric);
-  const values = history.map((point) => point[metric]).filter((value) => isBooleanMetric ? typeof value === 'boolean' : Number.isFinite(value));
+  const values = history.map((point) => point[metric]).filter((value) => isClassMetric ? typeof value === 'string' : isBooleanMetric ? typeof value === 'boolean' : Number.isFinite(value));
   const chart = useMemo(() => {
     if (values.length < 2) return '';
+    if (isClassMetric) {
+      const classes = [...new Set(values)];
+      return values.map((value, index) => `${(index / (values.length - 1)) * 100},${34 - classes.indexOf(value) * Math.min(24 / Math.max(classes.length - 1, 1), 8)}`).join(' ');
+    }
     if (isBooleanMetric) {
       return values.map((active, index) => {
         const x = (index / (values.length - 1)) * 100;
@@ -78,6 +84,10 @@ export default function Dashboard() {
   const [theme, setTheme] = useState(() => localStorage.getItem('dg-theme') || 'dark');
   const [metric, setMetric] = useState('gasRaw');
   const [gasThreshold, setGasThreshold] = useState(savedGasThreshold);
+  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('dg-ml-admin-token') || '');
+  const [trainingLabel, setTrainingLabel] = useState('normal');
+  const [trainingMessage, setTrainingMessage] = useState('');
+  const [trainingBusy, setTrainingBusy] = useState(false);
   useEffect(() => {
     fetch('/api/status').then((response) => response.json()).then(setData).catch(() => setData({ ...initial, mqtt: 'unavailable' }));
     const events = new EventSource('/api/events');
@@ -90,6 +100,57 @@ export default function Dashboard() {
     localStorage.setItem('dg-theme', theme);
   }, [theme]);
   useEffect(() => localStorage.setItem('dg-gas-threshold', String(gasThreshold)), [gasThreshold]);
+  useEffect(() => sessionStorage.setItem('dg-ml-admin-token', adminToken), [adminToken]);
+
+  async function mlRequest(path, options = {}) {
+    const response = await fetch(path, { ...options, headers: {
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
+      ...options.headers,
+    } });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+    if (path !== '/api/ml/export') {
+      const status = await fetch('/api/status').then((result) => result.json());
+      setData(status);
+    }
+    return body;
+  }
+  async function runMlAction(path, options, success) {
+    setTrainingBusy(true);
+    setTrainingMessage('');
+    try { await mlRequest(path, options); setTrainingMessage(success); }
+    catch (error) { setTrainingMessage(error.message); }
+    finally { setTrainingBusy(false); }
+  }
+  async function exportTrainingData() {
+    setTrainingBusy(true);
+    setTrainingMessage('');
+    try {
+      const response = await fetch('/api/ml/export', { headers: { Authorization: `Bearer ${adminToken}` } });
+      if (!response.ok) throw new Error((await response.json()).error || 'Could not export data.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = 'disasterguard-labeled-readings.json'; link.click();
+      URL.revokeObjectURL(url);
+      setTrainingMessage('Training readings downloaded. Keep this file as a backup.');
+    } catch (error) { setTrainingMessage(error.message); }
+    finally { setTrainingBusy(false); }
+  }
+  async function importTrainingData(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setTrainingBusy(true);
+    setTrainingMessage('');
+    try {
+      const contents = JSON.parse(await file.text());
+      await mlRequest('/api/ml/import', { method: 'POST', body: JSON.stringify(contents) });
+      setTrainingMessage('Labeled readings imported. Train the model when all categories have enough examples.');
+    } catch (error) { setTrainingMessage(error.message); }
+    finally { setTrainingBusy(false); }
+  }
 
   const online = data.device === 'online';
   const sensors = data.sensors;
@@ -98,7 +159,7 @@ export default function Dashboard() {
     sensors.vibrationDetected ? 'Possible earthquake' : null,
     sensors.rainDetected ? 'Storm warning · rain detected' : null,
     sensors.lightningDetected ? 'Lightning detected' : null,
-    data.ml?.anomaly ? 'Unusual sensor pattern' : null,
+    data.ml?.prediction?.warning && data.ml.prediction.confidence >= 0.75 ? `ML suggests: ${data.ml.prediction.label}` : null,
   ].filter(Boolean) : [];
   const mqttLabel = ({ connected: 'Secure broker connected', connecting: 'Connecting to broker', disconnected: 'Broker disconnected', not_configured: 'Broker not configured', invalid_config: 'Secure broker URL required', unavailable: 'Dashboard server unavailable' })[data.mqtt] || 'Broker status unknown';
   return <main className={`shell ${theme}`}>
@@ -117,17 +178,31 @@ export default function Dashboard() {
     </section>
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
+    <section className="ml-panel">
+      <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Teach it with real labeled readings</h2><p>Choose what is happening at the sensors, record the live stream, then train an explainable decision tree.</p></div><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.status === 'ready' ? 'TRAINED' : data.ml?.status === 'needs_retraining' ? 'RETRAIN NEEDED' : 'NEEDS DATA'}</span></div>
+      {!data.ml?.adminEnabled ? <div className="ml-setup-note">Set <code>ML_ADMIN_TOKEN</code> in the Render service environment before using model training controls.</div> : <>
+        <label className="ml-key">Training access key<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Enter the key set in Render" /></label>
+        <div className="ml-counts">{(data.ml?.classes || []).map((item) => <div className="ml-count" key={item.id}><span>{item.label}</span><strong>{data.ml?.counts?.[item.id] || 0} <small>/ 20</small></strong></div>)}</div>
+        <div className="ml-capture-row"><label>Label the current sensor condition<select value={trainingLabel} onChange={(event) => setTrainingLabel(event.target.value)} disabled={Boolean(data.ml?.capture?.active)}>{(data.ml?.classes || []).map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
+          {data.ml?.capture?.active ? <button className="ml-button stop" type="button" disabled={trainingBusy} onClick={() => runMlAction('/api/ml/capture', { method: 'DELETE' }, 'Capture stopped. Review the counts, then continue with the next condition.')}>Stop capture · {data.ml.capture.samplesAdded} readings</button> : <button className="ml-button" type="button" disabled={trainingBusy || !adminToken || !online} onClick={() => runMlAction('/api/ml/capture', { method: 'POST', body: JSON.stringify({ label: trainingLabel }) }, 'Capture started. Keep this condition steady, then stop it.')}>Record this condition</button>}
+          <button className="ml-button primary" type="button" disabled={trainingBusy || !adminToken || data.ml?.total < 120 || data.ml?.capture?.active} onClick={() => runMlAction('/api/ml/train', { method: 'POST', body: '{}' }, 'Model trained on your labeled readings.')}>Train model</button>
+        </div>
+        <div className="ml-tools"><button className="ml-button" type="button" disabled={trainingBusy || !adminToken} onClick={exportTrainingData}>Download training data</button><label className="ml-button upload">Import saved data<input type="file" accept="application/json,.json" onChange={importTrainingData} disabled={trainingBusy || !adminToken} /></label></div>
+        {trainingMessage && <p className="ml-message" role="status">{trainingMessage}</p>}
+      </>}
+      <p className="ml-caution">The tree learns only from your labels; it does not learn what a real earthquake, storm or fire looks like from this small sensor set. These are sensor-pattern demonstrations, not emergency predictions. Never create smoke, fire, toxic gas, or unsafe conditions to collect examples.</p>
+    </section>
     <section className="threshold-panel">
       <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local setting · 0–1500 raw MQ-135 ADC</small></div></div>
       <input aria-label="Gas alert threshold" type="range" min={GAS_ALERT_MIN} max={GAS_ALERT_MAX} step="10" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} />
       <output>{gasThreshold} <span>ADC</span></output>
     </section>
-    <p className="sensor-note">Earthquake, storm, fire and gas labels are sensor-triggered warnings for this prototype. Verify conditions independently; the MQ-135 measures a broad mix of gases and smoke, not fire itself.</p>
+    <p className="sensor-note">Direct sensor alerts remain independent of the ML model. The MQ-135 responds to a broad mix of gases and smoke; it does not identify fire or a specific gas.</p>
     <section className="trend-panel">
       <div className="trend-heading"><div><p className="overline">FIELD TELEMETRY / LAST {data.history?.length || 0} SAMPLES</p><h2>Signal history</h2></div><span className="chart-live"><i /> LIVE STREAM</span></div>
       <div className="metric-tabs" role="group" aria-label="Choose chart sensor">{chartOptions.map(([key, label]) => <button key={key} className={metric === key ? 'selected' : ''} aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}</div>
       <TrendChart history={data.history || []} metric={metric} />
-      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'mlScore' ? `ANOMALY SCORE · ALERT AT ${Math.round((data.ml?.threshold || 0.65) * 100)}` : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
+      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
     </section>
     <footer><span>DISASTERGUARD <span className="footer-dot">·</span> FIELD INCIDENT MONITORING</span><span>MQTT <span className="footer-status">{data.mqtt === 'connected' ? 'CONNECTED' : 'NOT CONNECTED'}</span></span></footer>
   </main>;
