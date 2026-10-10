@@ -179,6 +179,7 @@ export default function Dashboard() {
     sensors.gasRaw >= gasThreshold ? 'Possible fire / gas hazard' : null,
     sensors.vibrationDetected ? 'Possible earthquake' : null,
     sensors.rainDetected ? 'Storm warning · rain detected' : null,
+    sensors.objectDetected ? 'Object detected' : null,
     sensors.lightningDetected ? 'Lightning detected' : null,
     data.ml?.prediction?.warning && data.ml.prediction.confidence >= 0.75 ? `ML suggests: ${data.ml.prediction.label}` : null,
   ].filter(Boolean) : [];
@@ -194,8 +195,8 @@ export default function Dashboard() {
     </section>
     <section className={`incident-banner ${!online ? 'unavailable' : activeAlerts.length ? 'critical' : 'clear'}`} aria-live="polite">
       <div className="incident-symbol">{!online ? '◌' : activeAlerts.length ? '!' : '✓'}</div>
-      <div className="incident-copy"><span className="incident-label">{!online ? 'AWAITING FIELD SIGNAL' : activeAlerts.length ? 'ACTIVE INCIDENTS' : 'SYSTEM STATUS'}</span><strong>{!online ? 'No current sensor telemetry' : activeAlerts.length ? activeAlerts.join('  ·  ') : 'No active hazards detected'}</strong><small>{!online ? 'The dashboard will show real readings when the ESP32 reconnects.' : activeAlerts.length ? 'Review the sensor panel and verify conditions at the site.' : 'All monitored signals are within configured alert conditions.'}</small></div>
-      <div className="incident-count"><strong>{online ? String(activeAlerts.length).padStart(2, '0') : '—'}</strong><span>{online ? 'ALERTS' : 'STATUS'}</span></div>
+      <div className="incident-copy"><span className="incident-label">{!online ? 'AWAITING FIELD SIGNAL' : activeAlerts.length ? 'ACTIVE SENSOR SIGNALS' : 'SYSTEM STATUS'}</span><strong>{!online ? 'No current sensor telemetry' : activeAlerts.length ? activeAlerts.join('  ·  ') : 'No active hazards detected'}</strong><small>{!online ? 'The dashboard will show real readings when the ESP32 reconnects.' : activeAlerts.length ? 'Review each active signal in the sensor panel.' : 'All monitored signals are within configured alert conditions.'}</small></div>
+      <div className="incident-count"><strong>{online ? String(activeAlerts.length).padStart(2, '0') : '—'}</strong><span>{online ? 'SIGNALS' : 'STATUS'}</span></div>
     </section>
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
