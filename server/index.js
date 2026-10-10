@@ -47,6 +47,7 @@ function mlSnapshot(sensors = latest?.sensors) {
   return {
     status: trained ? 'ready' : hazardModel ? 'needs_retraining' : 'collecting',
     adminEnabled: Boolean(process.env.ML_ADMIN_TOKEN),
+    trainedLabels: hazardModel?.labels ?? [],
     ...summary,
     capture: capture ? { active: true, label: capture.label, samplesAdded: capture.samplesAdded } : { active: false },
     prediction: trained && sensors ? predictHazard(hazardModel, sensors) : null,
@@ -117,9 +118,9 @@ app.delete('/api/ml/capture', requireMlAdmin, (_request, response) => {
 app.post('/api/ml/train', requireMlAdmin, (_request, response) => {
   if (capture) return response.status(409).json({ error: 'Stop the current capture before training the model.' });
   const summary = summarizeTraining(labeledSamples);
-  const missing = summary.classes.filter(({ id }) => summary.counts[id] < summary.minimumPerClass);
-  if (missing.length) return response.status(400).json({ error: `Collect at least ${summary.minimumPerClass} labeled readings for every category first. Still short: ${missing.map(({ label, id }) => `${label} (${summary.counts[id]}/${summary.minimumPerClass})`).join(', ')}.` });
-  hazardModel = trainHazardTree(labeledSamples);
+  if (summary.trainableLabels.length < summary.minimumClasses) return response.status(400).json({ error: `Collect at least ${summary.minimumPerClass} real readings for any two categories first. Currently ready: ${summary.trainableLabels.length}/2.` });
+  const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
+  hazardModel = trainHazardTree(trainingSamples);
   modelDirty = false;
   broadcast();
   response.json(mlSnapshot());
@@ -145,7 +146,8 @@ try {
   const saved = JSON.parse(await readFile(trainingFile, 'utf8'));
   labeledSamples = cleanLabeledSamples(saved.samples);
   const counts = summarizeTraining(labeledSamples).counts;
-  if (HAZARD_CLASSES.every(({ id }) => counts[id] >= 20)) hazardModel = trainHazardTree(labeledSamples);
+  const trainedLabels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => counts[id] >= 20);
+  if (trainedLabels.length >= 2) hazardModel = trainHazardTree(labeledSamples.filter((sample) => trainedLabels.includes(sample.label)));
   console.log(`Loaded ${labeledSamples.length} labeled ML readings.`);
 } catch (error) { if (error.code !== 'ENOENT') console.error('Could not load ML training data:', error.message); }
 

@@ -17,7 +17,7 @@ Never commit `.env` or put broker credentials in frontend code.
 The old unsupervised anomaly score has been removed. The replacement is a small, explainable multiclass decision tree trained from real MQTT readings that you label in the dashboard. It does not invent labels or train itself on an assumed “normal” startup period.
 
 1. Configure `ML_ADMIN_TOKEN` as a private environment variable on the server. Render Blueprints can generate it with `generateValue: true`; for an existing service, add it in the Render Environment settings. Enter that same key in the dashboard's training panel.
-2. With the ESP32 online, select the condition you are actually observing and click **Record this condition**. Let it collect readings, then stop. Repeat for every category, including normal conditions. The model requires at least 20 readings for each category before training.
+2. With the ESP32 online, select the condition you are actually observing and click **Record this condition**. Let it collect readings, then stop. Repeat for each condition you can safely observe, including normal conditions. The model requires at least 20 readings in any two categories before training; it only predicts categories with at least 20 examples.
 3. Click **Train model**. The page shows the class counts and the model’s decision path for a prediction. “Leaf match” is the share of labeled examples in that tree leaf with the chosen label; it is not a calibrated probability.
 4. Download the labeled readings file as a backup. Import it later to restore training data.
 

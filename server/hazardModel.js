@@ -79,7 +79,8 @@ function trainNode(samples, depth, classIds) {
 }
 
 export function trainHazardTree(samples) {
-  return { root: trainNode(samples, 0, HAZARD_CLASSES.map(({ id }) => id)), trainedAt: Date.now(), samples: samples.length };
+  const labels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => samples.some((sample) => sample.label === id));
+  return { root: trainNode(samples, 0, labels), labels, trainedAt: Date.now(), samples: samples.length };
 }
 
 export function predictHazard(model, sensors) {
@@ -100,6 +101,8 @@ export function predictHazard(model, sensors) {
 }
 
 export function summarizeTraining(samples) {
-  return { counts: countsFor(samples), total: samples.length, minimumPerClass: 20,
+  const counts = countsFor(samples);
+  return { counts, total: samples.length, minimumPerClass: 20, minimumClasses: 2,
+    trainableLabels: HAZARD_CLASSES.filter(({ id }) => counts[id] >= 20).map(({ id }) => id),
     classes: HAZARD_CLASSES.map(({ id, label, warning }) => ({ id, label, warning })) };
 }
