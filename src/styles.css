@@ -97,10 +97,18 @@ button,input{font:inherit}
 .metric-tabs button{border:0;border-radius:4px;padding:6px 10px;background:transparent;color:var(--muted);font:10px 'DM Mono',monospace;cursor:pointer;transition:background .15s,color .15s}
 .metric-tabs button:hover{color:var(--text);background:#1c2a3e}
 .metric-tabs button.selected{background:#1b3b55;color:#9cddff}
-.trend-chart{display:block;width:100%;height:108px;margin-top:12px;overflow:visible}
+.chart-interactive{position:relative;margin-top:12px;touch-action:pan-y;cursor:crosshair}
+.trend-chart{display:block;width:100%;height:108px;margin-top:0;overflow:visible}
 .chart-axis{stroke:#35455b;stroke-width:.5}
 .chart-line{fill:none;stroke:var(--cyan);stroke-width:1.7;vector-effect:non-scaling-stroke}
 .binary-chart .chart-line{stroke:var(--orange);stroke-width:1.9}
+.chart-crosshair{stroke:#8da3bd;stroke-width:.65;stroke-dasharray:1.5 1.5;vector-effect:non-scaling-stroke}
+.chart-point{fill:var(--orange);stroke:#101827;stroke-width:.8;vector-effect:non-scaling-stroke}
+.chart-tooltip{position:absolute;z-index:2;top:5px;transform:translateX(-50%);display:flex;flex-direction:column;gap:4px;max-width:min(270px,72vw);border:1px solid #53657c;border-radius:6px;background:#0b1421ee;color:#eef4fc;padding:8px 10px;box-shadow:0 8px 22px #0006;pointer-events:none;font:9px 'DM Mono',monospace;white-space:nowrap}
+.chart-tooltip strong{font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.chart-tooltip span{color:#9aabc0;font-size:8px}
+.chart-tooltip.edge-start{transform:none}
+.chart-tooltip.edge-end{transform:translateX(-100%)}
 .chart-empty{font:3px 'DM Mono',monospace;fill:#8190a5}
 .chart-caption{display:flex;justify-content:space-between;gap:12px;margin-top:8px;color:var(--muted);font:9px 'DM Mono',monospace;letter-spacing:.4px}
 .shell footer{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding:23px 0 28px;margin-top:35px;font-size:9px}
@@ -145,6 +153,10 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .shell.light .metric-tabs button:hover{background:#f0f5fa;color:#1d2b3e}
 .shell.light .chart-axis{stroke:#d3ddea}
 .shell.light .chart-empty{fill:#62748b}
+.shell.light .chart-crosshair{stroke:#8292a8}
+.shell.light .chart-point{stroke:#fff}
+.shell.light .chart-tooltip{background:#fffF;color:#1d2b3e;border-color:#b8c5d5;box-shadow:0 8px 22px #19314d26}
+.shell.light .chart-tooltip span{color:#62748b}
 .shell.light .theme-toggle{color:#344860}
 .shell.light .footer-status{color:#176c9f}
 

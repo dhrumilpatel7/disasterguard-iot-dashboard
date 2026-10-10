@@ -48,35 +48,56 @@ function SensorCard({ card, value, online, gasThreshold, model, onSelect, select
 }
 
 function TrendChart({ history, metric }) {
+  const [activeIndex, setActiveIndex] = useState(null);
   const isClassMetric = metric === 'modelClass';
   const isBooleanMetric = ['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric);
-  const values = history.map((point) => point[metric]).filter((value) => isClassMetric ? typeof value === 'string' : isBooleanMetric ? typeof value === 'boolean' : Number.isFinite(value));
-  const chart = useMemo(() => {
-    if (values.length < 2) return '';
-    if (isClassMetric) {
-      const classes = [...new Set(values)];
-      return values.map((value, index) => `${(index / (values.length - 1)) * 100},${34 - classes.indexOf(value) * Math.min(24 / Math.max(classes.length - 1, 1), 8)}`).join(' ');
-    }
-    if (isBooleanMetric) {
-      return values.map((active, index) => {
-        const x = (index / (values.length - 1)) * 100;
-        const y = active ? 10 : 33;
-        if (index === 0) return `M ${x} ${y}`;
-        const previousY = values[index - 1] ? 10 : 33;
-        return `L ${x} ${previousY} L ${x} ${y}`;
-      }).join(' ');
-    }
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+  const values = history.map((point) => ({ at: point.at, value: point[metric] }))
+    .filter(({ value }) => isClassMetric ? typeof value === 'string' : isBooleanMetric ? typeof value === 'boolean' : Number.isFinite(value));
+  const plotted = useMemo(() => {
+    if (!values.length) return [];
+    const classNames = isClassMetric ? [...new Set(values.map(({ value }) => value))] : [];
+    const min = isBooleanMetric || isClassMetric ? 0 : Math.min(...values.map(({ value }) => value));
+    const max = isBooleanMetric || isClassMetric ? 1 : Math.max(...values.map(({ value }) => value));
     const spread = max - min || 1;
-    return values.map((value, index) => `${(index / (values.length - 1)) * 100},${36 - ((value - min) / spread) * 28}`).join(' ');
+    return values.map(({ at, value }, index) => {
+      const x = values.length < 2 ? 50 : (index / (values.length - 1)) * 100;
+      const classIndex = classNames.indexOf(value);
+      const y = isBooleanMetric ? value ? 10 : 33
+        : isClassMetric ? 34 - classIndex * Math.min(24 / Math.max(classNames.length - 1, 1), 8)
+          : 36 - ((value - min) / spread) * 28;
+      return { at, value, x, y };
+    });
   }, [history, metric]);
+  const chart = plotted.map(({ x, y }, index) => {
+    if (index === 0) return isBooleanMetric ? `M ${x} ${y}` : `${x},${y}`;
+    if (isBooleanMetric) return `L ${x} ${plotted[index - 1].y} L ${x} ${y}`;
+    return `${x},${y}`;
+  }).join(' ');
+  const activePoint = activeIndex === null || !plotted.length ? null : plotted[Math.min(activeIndex, plotted.length - 1)];
+  function selectNearestPoint(event) {
+    if (!plotted.length) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    setActiveIndex(Math.round(ratio * (plotted.length - 1)));
+  }
+  function tooltipValue(value) {
+    if (isBooleanMetric) return value ? 'Active' : 'Clear';
+    if (isClassMetric) return ({ normal: 'Normal conditions', gas_signal: 'Gas / smoke sensor signal', rain_signal: 'Rain sensor trigger', vibration: 'Vibration trigger', light_flash: 'Sudden light flash', object: 'Object sensor trigger' })[value] || value;
+    return `${value.toLocaleString()} ADC`;
+  }
   const label = chartOptions.find(([key]) => key === metric)?.[1] || 'Sensor';
-  return <svg className={`trend-chart${isBooleanMetric ? ' binary-chart' : ''}`} viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${label} recent readings trend`}>
-    <line x1="0" y1={isBooleanMetric ? 10 : 38} x2="100" y2={isBooleanMetric ? 10 : 38} className="chart-axis" />
-    {isBooleanMetric && <line x1="0" y1="33" x2="100" y2="33" className="chart-axis" />}
-    {chart ? isBooleanMetric ? <path d={chart} className="chart-line" /> : <polyline points={chart} className="chart-line" /> : <text x="50" y="22" textAnchor="middle" className="chart-empty">Waiting for readings</text>}
-  </svg>;
+  return <div className="chart-interactive" onPointerMove={selectNearestPoint} onPointerLeave={(event) => { if (event.pointerType !== 'touch') setActiveIndex(null); }} onClick={selectNearestPoint} role="group" aria-label={`${label} graph. Move the pointer or tap to inspect a reading.`}>
+    <svg className={`trend-chart${isBooleanMetric ? ' binary-chart' : ''}`} viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${label} recent readings trend`}>
+      <line x1="0" y1={isBooleanMetric ? 10 : 38} x2="100" y2={isBooleanMetric ? 10 : 38} className="chart-axis" />
+      {isBooleanMetric && <line x1="0" y1="33" x2="100" y2="33" className="chart-axis" />}
+      {chart ? isBooleanMetric ? <path d={chart} className="chart-line" /> : <polyline points={chart} className="chart-line" /> : <text x="50" y="22" textAnchor="middle" className="chart-empty">Waiting for readings</text>}
+      {activePoint && <><line x1={activePoint.x} y1="4" x2={activePoint.x} y2="38" className="chart-crosshair" /><circle cx={activePoint.x} cy={activePoint.y} r="1.8" className="chart-point" /></>}
+    </svg>
+    {activePoint && <div className={`chart-tooltip${activePoint.x < 18 ? ' edge-start' : activePoint.x > 82 ? ' edge-end' : ''}`} style={{ left: `${activePoint.x}%` }} role="status">
+      <strong>{label}: {tooltipValue(activePoint.value)}</strong>
+      <span>{activePoint.at ? new Date(activePoint.at).toLocaleString() : 'Time unavailable'}</span>
+    </div>}
+  </div>;
 }
 
 export default function Dashboard() {
