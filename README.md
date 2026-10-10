@@ -24,6 +24,8 @@ The old unsupervised anomaly score has been removed. The replacement is a small,
 
 Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
 
+When the ESP32 lightning flag is active, the ML card gives that direct signal priority and displays “Sudden light flash” with its source identified. Other classifications continue to come from the trained decision tree.
+
 The raw archive and labeled dataset are local files on the server. Render's free service filesystem can reset after a restart or redeploy, so download both files for backup or configure persistent storage before relying on long-term retention.
 
 ## Telemetry contract

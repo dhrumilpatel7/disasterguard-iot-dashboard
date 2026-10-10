@@ -89,6 +89,14 @@ export function trainHazardTree(samples) {
 }
 
 export function predictHazard(model, sensors) {
+  // Preserve the high-priority ESP32 flash event even when the learned tree
+  // would otherwise classify the same readings as normal.
+  if (sensors.lightningDetected === true) {
+    return { label: 'Sudden light flash', classId: 'light_flash', warning: true,
+      confidence: null, leafSamples: 0, source: 'sensor_trigger',
+      reasons: ['ESP32 lightningDetected signal is active'] };
+  }
+  if (!model) return null;
   const features = featuresFor(sensors);
   let node = model.root;
   const reasons = [];
@@ -102,7 +110,7 @@ export function predictHazard(model, sensors) {
   const category = HAZARD_CLASSES.find(({ id }) => id === node.label);
   const confidence = node.size ? node.counts[node.label] / node.size : 0;
   return { label: category.label, classId: category.id, warning: category.warning,
-    confidence: Number(confidence.toFixed(2)), leafSamples: node.size, reasons };
+    confidence: Number(confidence.toFixed(2)), leafSamples: node.size, source: 'decision_tree', reasons };
 }
 
 export function summarizeTraining(samples) {

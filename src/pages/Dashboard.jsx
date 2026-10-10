@@ -17,7 +17,7 @@ const cards = [
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected', chart: 'lightningDetected' },
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading', chart: 'lightRaw' },
-  { key: 'hazardPrediction', title: 'ML signal classification', icon: 'AI', detail: 'Trained from labeled sensor readings', kind: 'model', active: 'Model suggests a sensor pattern', clear: 'No trained match', chart: 'modelClass' },
+  { key: 'hazardPrediction', title: 'ML signal classification', icon: 'ML', detail: 'Decision tree with direct sensor alerts', kind: 'model', active: 'Model suggests a sensor pattern', clear: 'No trained match', chart: 'modelClass' },
 ];
 const chartOptions = [
   ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['modelClass', 'ML class'], ['vibrationDetected', 'Vibration'],
@@ -26,10 +26,10 @@ const chartOptions = [
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 
 function SensorCard({ card, value, online, gasThreshold, model, onSelect, selected }) {
-  const modelReady = card.kind === 'model' && model?.status === 'ready' && model.prediction;
+  const modelReady = card.kind === 'model' && Boolean(model?.prediction);
   const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
-  const modelAlert = card.kind === 'model' && hasValue && model.prediction.warning && model.prediction.confidence >= 0.6;
+  const modelAlert = card.kind === 'model' && hasValue && (model.prediction.source === 'sensor_trigger' || (model.prediction.warning && model.prediction.confidence >= 0.6));
   const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? modelAlert : card.kind === 'boolean' && value);
   const display = !hasValue ? card.kind === 'model' && online ? model?.status === 'needs_retraining' ? 'Retrain after new labels' : 'Collect labeled readings' : 'Awaiting data'
     : card.kind === 'gas' ? gasAlert ? 'Possible fire / gas hazard' : value.toLocaleString()
@@ -40,9 +40,9 @@ function SensorCard({ card, value, online, gasThreshold, model, onSelect, select
   return <button id={`sensor-${card.key}`} type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
     <span className="card-top"><span className="sensor-icon">{card.icon}</span><span className={`state-dot ${state}`} /></span>
     <span className="eyebrow">{card.title}</span>
-    <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {Math.round(model.prediction.confidence * 100)}% leaf match</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
+    <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {model.prediction.source === 'sensor_trigger' ? 'direct sensor trigger' : `${Math.round(model.prediction.confidence * 100)}% leaf match`}</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
     {card.kind === 'gas' && hasValue && <span className="gas-meter" aria-label={`Gas reading ${value} of 4095`}><span style={{ width: `${Math.min((value / 4095) * 100, 100)}%` }} /></span>}
-    {card.kind === 'model' && <span className="model-detail">{hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · train the model again' : 'Needs 20 labeled readings in at least 2 categories'}</span>}
+    {card.kind === 'model' && <span className="model-detail">{hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · auto-training' : 'Needs 20 labeled readings in at least 2 categories'}</span>}
     <span className="card-foot"><span>{card.detail}</span><span className="card-state">{footerState}</span></span>
   </button>;
 }

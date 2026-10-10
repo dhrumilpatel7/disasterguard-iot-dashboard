@@ -105,7 +105,7 @@ function mlSnapshot(sensors = latest?.sensors) {
     trainedLabels: hazardModel?.labels ?? [],
     ...summary,
     capture: capture ? { active: true, label: capture.label, samplesAdded: capture.samplesAdded } : { active: false },
-    prediction: trained && sensors ? predictHazard(hazardModel, sensors) : null,
+    prediction: sensors ? predictHazard(hazardModel, sensors) : null,
   };
 }
 
