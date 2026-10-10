@@ -9,7 +9,7 @@ function savedGasThreshold() {
   const value = Number(saved);
   return Number.isFinite(value) ? Math.min(GAS_ALERT_MAX, Math.max(GAS_ALERT_MIN, value)) : GAS_ALERT_DEFAULT;
 }
-const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [], ml: { status: 'collecting', total: 0, counts: {}, classes: [], prediction: null } };
+const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [], ml: { status: 'collecting', total: 0, counts: {}, classes: [], prediction: null, telemetryReadingsStored: 0 } };
 const cards = [
   { key: 'gasRaw', title: 'Fire / gas watch', icon: '♨', unit: 'ADC / 4095', detail: 'MQ-135 · GPIO 32', kind: 'gas' },
   { key: 'vibrationDetected', title: 'Earthquake watch', icon: '〰', detail: 'SW-420 vibration trigger · GPIO 25', kind: 'boolean', active: 'Possible earthquake detected', clear: 'No vibration detected', chart: 'vibrationDetected' },
@@ -157,6 +157,21 @@ export default function Dashboard() {
     } catch (error) { setTrainingMessage(error.message); }
     finally { setTrainingBusy(false); }
   }
+  async function exportRawReadings() {
+    setTrainingBusy(true);
+    setTrainingMessage('');
+    try {
+      const response = await fetch('/api/ml/raw-export', { headers: { Authorization: `Bearer ${adminToken}` } });
+      if (!response.ok) throw new Error((await response.json()).error || 'Could not download the live readings archive.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = 'disasterguard-raw-telemetry.jsonl'; link.click();
+      URL.revokeObjectURL(url);
+      setTrainingMessage('Live readings archive downloaded. These readings are unlabeled and are not model training examples yet.');
+    } catch (error) { setTrainingMessage(error.message); }
+    finally { setTrainingBusy(false); }
+  }
   async function importTrainingData(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -171,7 +186,7 @@ export default function Dashboard() {
       if (!contents.samples.length) throw new Error('This file contains no readings to import.');
       if (contents.samples.length > 20_000) throw new Error('This file is too large. Import no more than 20,000 readings.');
       await mlRequest('/api/ml/import', { method: 'POST', body: JSON.stringify(contents) });
-      setTrainingMessage('Labeled readings imported. Train the model when all categories have enough examples.');
+      setTrainingMessage('Labeled readings imported. The model trained automatically if at least two labels have 20 readings each.');
     } catch (error) { setTrainingMessage(error.message); }
     finally { setTrainingBusy(false); }
   }
@@ -211,17 +226,20 @@ export default function Dashboard() {
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
     <section className="ml-panel">
-      <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Teach it with real labeled readings</h2><p>Choose what is happening at the sensors, record the live stream, then train an explainable decision tree.</p></div><div className="ml-statuses"><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.status === 'ready' ? `TRAINED · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? 'RETRAIN NEEDED' : 'NEEDS DATA'}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
+      <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Live data and automatic training</h2><p>Every valid site reading is saved. Label a condition during capture so the model learns what those readings mean.</p></div><div className="ml-statuses"><span className="model-status ready">AUTO-TRAIN ON</span><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.status === 'ready' ? `TRAINED · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? 'NEW LABELS · AUTO-TRAINING' : 'NEEDS LABELED DATA'}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
+      <p className="ml-import-note">Live archive: {(data.ml?.telemetryReadingsStored || 0).toLocaleString()} / {(data.ml?.telemetryArchiveLimit || 50_000).toLocaleString()} recent readings saved on the server. It keeps the newest readings when full. The model auto-trains after it has 20 readings in at least two labels, then after every 20 additional labeled readings.</p>
+      <p className="ml-import-note">This file is stored on the backend host, not your phone or computer. Render’s free service storage may reset, so download the live archive regularly.</p>
       {['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <p className="ml-demo-warning" role="status">This dataset contains synthetic readings. Model results are for demonstration only and do not describe current real-world hazards.</p>}
       {!data.ml?.adminEnabled ? <div className="ml-setup-note">Set <code>ML_ADMIN_TOKEN</code> in the Render service environment before using model training controls.</div> : <>
         <label className="ml-key">Training access key<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Enter the key set in Render" /></label>
         <div className="ml-counts">{(data.ml?.classes || []).map((item) => <div className="ml-count" key={item.id}><span>{item.label}</span><strong>{data.ml?.counts?.[item.id] || 0} <small>/ 20</small></strong></div>)}</div>
         <div className="ml-capture-row"><label>Label the current sensor condition<select value={trainingLabel} onChange={(event) => setTrainingLabel(event.target.value)} disabled={Boolean(data.ml?.capture?.active)}>{(data.ml?.classes || []).map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
           {data.ml?.capture?.active ? <button className="ml-button stop" type="button" disabled={trainingBusy} onClick={() => runMlAction('/api/ml/capture', { method: 'DELETE' }, 'Capture stopped. Review the counts, then continue with the next condition.')}>Stop capture · {data.ml.capture.samplesAdded} readings</button> : <button className="ml-button" type="button" disabled={trainingBusy || !adminToken || !online} onClick={() => runMlAction('/api/ml/capture', { method: 'POST', body: JSON.stringify({ label: trainingLabel }) }, 'Capture started. Keep this condition steady, then stop it.')}>Record this condition</button>}
-          <button className="ml-button primary" type="button" disabled={trainingBusy || !adminToken || data.ml?.trainableLabels?.length < 2 || data.ml?.capture?.active} onClick={() => runMlAction('/api/ml/train', { method: 'POST', body: '{}' }, 'Model trained on your labeled readings.')}>Train model</button>
+          <button className="ml-button primary" type="button" disabled={trainingBusy || !adminToken || data.ml?.trainableLabels?.length < 2 || data.ml?.capture?.active} onClick={() => runMlAction('/api/ml/train', { method: 'POST', body: '{}' }, 'Model trained on your labeled readings.')}>Train model now</button>
         </div>
-        <div className="ml-tools"><button className="ml-button" type="button" disabled={trainingBusy || !adminToken} onClick={exportTrainingData}>Download training data</button><label className="ml-button upload">Import saved data<input type="file" accept="application/json,.json" onChange={importTrainingData} disabled={trainingBusy || !adminToken} /></label></div>
-        <p className="ml-import-note">Import replaces the current training readings. Download a backup before importing another file.</p>
+        {trainingLabel === 'light_flash' && <p className="ml-import-note">For this label, only readings with the ESP32 lightning indicator active are counted. A brief phone-flashlight pulse at the LDR can create a safe light-flash example; the dashboard label means “sudden light detected,” not a confirmed lightning strike.</p>}
+        <div className="ml-tools"><button className="ml-button" type="button" disabled={trainingBusy || !adminToken} onClick={exportRawReadings}>Download live archive</button><button className="ml-button" type="button" disabled={trainingBusy || !adminToken} onClick={exportTrainingData}>Download labeled training data</button><label className="ml-button upload">Import saved data<input type="file" accept="application/json,.json" onChange={importTrainingData} disabled={trainingBusy || !adminToken} /></label></div>
+        <p className="ml-import-note">The live archive contains unlabeled sensor readings. The labeled training file is separate. Import replaces the current labeled training set; download a backup before importing.</p>
         {trainingMessage && <p className="ml-message" role="status">{trainingMessage}</p>}
       </>}
       <p className="ml-caution">Collect at least 20 real readings for any two categories to train; the model only predicts categories with enough examples. Its labels describe sensor patterns, not confirmed earthquake, storm or fire events. Never create smoke, fire, toxic gas, or unsafe conditions to collect examples.</p>

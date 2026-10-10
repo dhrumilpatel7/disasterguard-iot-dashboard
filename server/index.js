@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { appendFile, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -13,14 +13,21 @@ const app = express();
 const here = dirname(fileURLToPath(import.meta.url));
 const webDist = join(here, '..', 'dist');
 const trainingFile = join(here, 'hazard-training.json');
+const telemetryFile = join(here, 'telemetry-readings.jsonl');
 const port = Number(process.env.PORT || 3001);
 const topic = process.env.MQTT_TOPIC || 'disasterguard/esp32-01/telemetry';
 const staleAfterMs = 30_000;
 const historyLimit = 120;
+const telemetryArchiveLimit = 50_000;
+const telemetryArchiveKeep = 25_000;
+const autoTrainEverySamples = 20;
 let mqttState = process.env.MQTT_URL ? 'connecting' : 'not_configured';
 let latest = null;
 const history = [];
 const clients = new Set();
+let telemetryReadingsStored = 0;
+let telemetryWriteQueue = Promise.resolve();
+let trainingWriteQueue = Promise.resolve();
 
 app.disable('x-powered-by');
 app.use(helmet());
@@ -41,13 +48,59 @@ let capture = null;
 let hazardModel = null;
 let modelDirty = false;
 let datasetOrigin = 'empty';
+let lastTrainedLabeledCount = 0;
+
+async function initializeTelemetryArchive() {
+  try {
+    const text = await readFile(telemetryFile, 'utf8');
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    if (lines.length > telemetryArchiveLimit) {
+      const kept = lines.slice(-telemetryArchiveKeep);
+      await writeFile(telemetryFile, `${kept.join('\n')}\n`, 'utf8');
+      telemetryReadingsStored = kept.length;
+    } else telemetryReadingsStored = lines.length;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    await writeFile(telemetryFile, '', 'utf8');
+  }
+}
+
+function persistTelemetryReading(entry) {
+  telemetryWriteQueue = telemetryWriteQueue.then(async () => {
+    if (telemetryReadingsStored >= telemetryArchiveLimit) {
+      const text = await readFile(telemetryFile, 'utf8');
+      const kept = text.split(/\r?\n/).filter(Boolean).slice(-telemetryArchiveKeep);
+      await writeFile(telemetryFile, `${kept.join('\n')}${kept.length ? '\n' : ''}`, 'utf8');
+      telemetryReadingsStored = kept.length;
+    }
+    await appendFile(telemetryFile, `${JSON.stringify(entry)}\n`, 'utf8');
+    telemetryReadingsStored += 1;
+  }).catch((error) => console.error('Could not save telemetry archive:', error.message));
+  return telemetryWriteQueue;
+}
+
+function retrainIfReady(force = false) {
+  const summary = summarizeTraining(labeledSamples);
+  if (summary.trainableLabels.length < summary.minimumClasses) return false;
+  if (!force && hazardModel && labeledSamples.length - lastTrainedLabeledCount < autoTrainEverySamples) return false;
+  const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
+  hazardModel = trainHazardTree(trainingSamples);
+  lastTrainedLabeledCount = labeledSamples.length;
+  modelDirty = false;
+  console.log(`Automatically trained model with ${trainingSamples.length} labeled readings.`);
+  return true;
+}
 
 function mlSnapshot(sensors = latest?.sensors) {
   const summary = summarizeTraining(labeledSamples);
-  const trained = Boolean(hazardModel && !modelDirty);
+  const trained = Boolean(hazardModel);
   return {
-    status: trained ? 'ready' : hazardModel ? 'needs_retraining' : 'collecting',
+    status: trained && !modelDirty ? 'ready' : hazardModel ? 'needs_retraining' : 'collecting',
     adminEnabled: Boolean(process.env.ML_ADMIN_TOKEN),
+    autoTraining: true,
+    autoTrainEverySamples,
+    telemetryReadingsStored,
+    telemetryArchiveLimit,
     datasetOrigin,
     trainedLabels: hazardModel?.labels ?? [],
     ...summary,
@@ -125,13 +178,18 @@ function cleanLabeledSamples(samples) {
 
 async function saveTrainingData(samples = labeledSamples, origin = datasetOrigin) {
   const temporaryFile = `${trainingFile}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporaryFile, JSON.stringify({ version: 1, samples, origin, demoOnly: origin === 'synthetic_demo', containsSyntheticData: ['synthetic_demo', 'mixed'].includes(origin) }), 'utf8');
-    await rename(temporaryFile, trainingFile);
-  } catch (error) {
-    await unlink(temporaryFile).catch(() => {});
-    throw error;
-  }
+  const contents = JSON.stringify({ version: 1, samples, origin, demoOnly: origin === 'synthetic_demo', containsSyntheticData: ['synthetic_demo', 'mixed'].includes(origin) });
+  const write = trainingWriteQueue.then(async () => {
+    try {
+      await writeFile(temporaryFile, contents, 'utf8');
+      await rename(temporaryFile, trainingFile);
+    } catch (error) {
+      await unlink(temporaryFile).catch(() => {});
+      throw error;
+    }
+  });
+  trainingWriteQueue = write.catch(() => {});
+  return write;
 }
 
 app.get('/api/ml/summary', (_request, response) => response.json(mlSnapshot()));
@@ -154,6 +212,7 @@ app.post('/api/ml/train', requireMlAdmin, (_request, response) => {
   if (summary.trainableLabels.length < summary.minimumClasses) return response.status(400).json({ error: `Collect at least ${summary.minimumPerClass} real readings for any two categories first. Currently ready: ${summary.trainableLabels.length}/2.` });
   const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
   hazardModel = trainHazardTree(trainingSamples);
+  lastTrainedLabeledCount = labeledSamples.length;
   modelDirty = false;
   broadcast();
   response.json(mlSnapshot());
@@ -162,6 +221,14 @@ app.get('/api/ml/export', requireMlAdmin, (_request, response) => {
   response.setHeader('Content-Disposition', 'attachment; filename="disasterguard-labeled-readings.json"');
   response.json({ version: 1, exportedAt: new Date().toISOString(), origin: datasetOrigin,
     demoOnly: datasetOrigin === 'synthetic_demo', containsSyntheticData: ['synthetic_demo', 'mixed'].includes(datasetOrigin), samples: labeledSamples });
+});
+app.get('/api/ml/raw-export', requireMlAdmin, async (_request, response, next) => {
+  try {
+    await telemetryWriteQueue;
+    response.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    response.setHeader('Content-Disposition', 'attachment; filename="disasterguard-raw-telemetry.jsonl"');
+    createReadStream(telemetryFile).pipe(response);
+  } catch (error) { next(error); }
 });
 app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
   try {
@@ -174,6 +241,8 @@ app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
     capture = null;
     hazardModel = null;
     modelDirty = false;
+    lastTrainedLabeledCount = 0;
+    retrainIfReady(true);
     broadcast();
     response.json(mlSnapshot());
   } catch (error) { next(error); }
@@ -185,9 +254,11 @@ try {
   datasetOrigin = saved.demoOnly === true ? 'synthetic_demo' : (saved.containsSyntheticData === true ? 'mixed' : (saved.origin || (labeledSamples.length ? 'saved_data' : 'empty')));
   const counts = summarizeTraining(labeledSamples).counts;
   const trainedLabels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => counts[id] >= 20);
-  if (trainedLabels.length >= 2) hazardModel = trainHazardTree(labeledSamples.filter((sample) => trainedLabels.includes(sample.label)));
+  if (trainedLabels.length >= 2) retrainIfReady(true);
   console.log(`Loaded ${labeledSamples.length} labeled ML readings.`);
 } catch (error) { if (error.code !== 'ENOENT') console.error('Could not load ML training data:', error.message); }
+
+await initializeTelemetryArchive().catch((error) => console.error('Could not initialize telemetry archive:', error.message));
 
 const brokerUrl = process.env.MQTT_URL;
 let brokerProtocolIsSecure = false;
@@ -218,13 +289,18 @@ if (brokerUrl && brokerProtocolIsSecure) {
       const receivedAt = Date.now();
       const sensors = parseTelemetry(payload);
       latest = { sensors, receivedAt };
+      void persistTelemetryReading({ at: receivedAt, topic: _receivedTopic, sensors });
       if (capture && labeledSamples.length < 20_000) {
-        if (datasetOrigin === 'empty') datasetOrigin = 'captured';
-        else if (datasetOrigin === 'synthetic_demo' || datasetOrigin === 'imported') datasetOrigin = 'mixed';
-        labeledSamples.push({ label: capture.label, sensors, at: receivedAt });
-        capture.samplesAdded += 1;
-        modelDirty = Boolean(hazardModel);
-        saveTrainingData().catch((error) => console.error('Could not save ML training data:', error.message));
+        // A lightning pulse is brief; only label actual positive ESP32 events as light-flash examples.
+        if (capture.label !== 'light_flash' || sensors.lightningDetected === true) {
+          if (datasetOrigin === 'empty') datasetOrigin = 'captured';
+          else if (datasetOrigin === 'synthetic_demo' || datasetOrigin === 'imported') datasetOrigin = 'mixed';
+          labeledSamples.push({ label: capture.label, sensors, at: receivedAt });
+          capture.samplesAdded += 1;
+          modelDirty = Boolean(hazardModel);
+          saveTrainingData().catch((error) => console.error('Could not save ML training data:', error.message));
+          retrainIfReady();
+        }
       } else if (capture) {
         capture = null;
         console.warn('Stopped ML capture at 20,000 labeled readings.');

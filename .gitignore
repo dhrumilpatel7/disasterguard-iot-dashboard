@@ -3,3 +3,4 @@ dist/
 .env
 firmware/**/secrets.h
 server/hazard-training.json
+server/telemetry-readings.jsonl
