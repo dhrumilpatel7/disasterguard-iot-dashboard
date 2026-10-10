@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const GAS_ALERT_DEFAULT = 2500;
+const GAS_ALERT_MIN = 0;
+const GAS_ALERT_MAX = 1500;
+const GAS_ALERT_DEFAULT = 1000;
+function savedGasThreshold() {
+  const saved = localStorage.getItem('dg-gas-threshold');
+  if (saved === null) return GAS_ALERT_DEFAULT;
+  const value = Number(saved);
+  return Number.isFinite(value) ? Math.min(GAS_ALERT_MAX, Math.max(GAS_ALERT_MIN, value)) : GAS_ALERT_DEFAULT;
+}
 const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [] };
 const cards = [
   { key: 'gasRaw', title: 'Fire / gas watch', icon: '♨', unit: 'ADC / 4095', detail: 'MQ-135 · GPIO 32', kind: 'gas' },
@@ -64,7 +72,7 @@ export default function Dashboard() {
   const [data, setData] = useState(initial);
   const [theme, setTheme] = useState(() => localStorage.getItem('dg-theme') || 'dark');
   const [metric, setMetric] = useState('gasRaw');
-  const [gasThreshold, setGasThreshold] = useState(() => Number(localStorage.getItem('dg-gas-threshold')) || GAS_ALERT_DEFAULT);
+  const [gasThreshold, setGasThreshold] = useState(savedGasThreshold);
   useEffect(() => {
     fetch('/api/status').then((response) => response.json()).then(setData).catch(() => setData({ ...initial, mqtt: 'unavailable' }));
     const events = new EventSource('/api/events');
@@ -104,8 +112,8 @@ export default function Dashboard() {
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
     <section className="threshold-panel">
-      <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local dashboard setting · raw MQ-135 ADC value</small></div></div>
-      <input aria-label="Gas alert threshold" type="range" min="1000" max="4000" step="100" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} />
+      <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local setting · 0–1500 raw MQ-135 ADC</small></div></div>
+      <input aria-label="Gas alert threshold" type="range" min={GAS_ALERT_MIN} max={GAS_ALERT_MAX} step="10" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} />
       <output>{gasThreshold} <span>ADC</span></output>
     </section>
     <p className="sensor-note">Earthquake, storm, fire and gas labels are sensor-triggered warnings for this prototype. Verify conditions independently; the MQ-135 measures a broad mix of gases and smoke, not fire itself.</p>

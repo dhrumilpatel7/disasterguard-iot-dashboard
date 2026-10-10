@@ -17,12 +17,14 @@ constexpr bool IR_ACTIVE_LOW = true;
 constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
 constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 50;
+// The connected SW-420 module is behaving active-low on the user's setup.
+constexpr bool VIBRATION_ACTIVE_LOW = true;
 
 constexpr char MQTT_HOST[] = "o1fbc6cf.ala.asia-southeast1.emqxsl.com";
 constexpr uint16_t MQTT_PORT = 8883;
 constexpr char MQTT_TOPIC[] = "disasterguard/esp32-01/telemetry";
-// Publish twice a second for a responsive dashboard without flooding the broker.
-constexpr uint32_t PUBLISH_INTERVAL_MS = 500;
+// Publish four times a second; sensor sampling remains at 50 ms.
+constexpr uint32_t PUBLISH_INTERVAL_MS = 250;
 
 WiFiClientSecure tlsClient;
 PubSubClient mqttClient(tlsClient);
@@ -111,8 +113,9 @@ void sampleSensors(uint32_t now) {
   lightRaw = analogRead(LDR_PIN);
   rainDetected = readActive(RAIN_DO_PIN, RAIN_ACTIVE_LOW);
   objectDetected = readActive(IR_OUT_PIN, IR_ACTIVE_LOW);
-  // The user's verified SW-420 code uses HIGH as the active vibration state.
-  vibrationDetected = digitalRead(SW420_DO_PIN) == HIGH;
+  // Match the connected module's observed polarity: LOW means vibration.
+  const int vibrationLevel = digitalRead(SW420_DO_PIN);
+  vibrationDetected = VIBRATION_ACTIVE_LOW ? vibrationLevel == LOW : vibrationLevel == HIGH;
 
   // A sudden drop in the LDR ADC value is treated as a bright flash.
   if (previousLight - lightRaw >= LIGHTNING_SPIKE_THRESHOLD) {
