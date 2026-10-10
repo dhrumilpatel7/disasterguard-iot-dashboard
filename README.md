@@ -34,6 +34,8 @@ The two analog values are raw ESP32 ADC readings (0–4095), not calibrated ppm 
 
 Run `npm run build`, then `npm start`. The Node server serves the built frontend and API from one origin. Put it behind a hosting provider's HTTPS endpoint before making it public; do not expose the local development server directly to the internet. `/api/health` provides a simple health check. The theme toggle is saved in the browser.
 
-## Current scope
+## ESP32 firmware
 
-Public hosting, broker configuration, and the ESP32 publisher firmware are still needed for real remote monitoring. Remote buzzer control is intentionally not exposed until the device command path is designed and a buzzer is available.
+The Arduino sketch and private credential template are in `firmware/`. Open `DisasterGuardESP32.ino` in Arduino IDE, install the `PubSubClient` library, copy `secrets.example.h` to `secrets.h`, then fill in Wi-Fi credentials, the ESP32-only MQTT account, and the CA certificate downloaded from the EMQX deployment Overview page. `secrets.h` is ignored by Git; never commit it or share its values.
+
+Power the ESP32 dev board by USB first. Before connecting the sensor outputs, verify that every sensor signal stays at or below 3.3 V. The sketch publishes raw ADC values (not calibrated ppm/lux) every five seconds. Confirm the active HIGH/LOW behavior for the rain, IR, and vibration modules; the defaults in the sketch are configurable. The dashboard marks the device offline if no valid message arrives for 30 seconds. Remote buzzer control is not included.
