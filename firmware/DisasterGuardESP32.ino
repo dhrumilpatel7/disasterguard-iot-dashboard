@@ -30,15 +30,50 @@ bool readActive(uint8_t pin, bool activeLow) {
   return activeLow ? level == LOW : level == HIGH;
 }
 
+const char* wifiStatusName(wl_status_t status) {
+  switch (status) {
+    case WL_NO_SSID_AVAIL: return "SSID not found";
+    case WL_CONNECT_FAILED: return "authentication/connection failed";
+    case WL_CONNECTION_LOST: return "connection lost";
+    case WL_DISCONNECTED: return "disconnected";
+    default: return "connecting";
+  }
+}
+
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
 
-  Serial.printf("Connecting to Wi-Fi: %s\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
+  Serial.printf("Scanning for configured Wi-Fi: %s\n", WIFI_SSID);
+  const int networkCount = WiFi.scanNetworks();
+  bool configuredNetworkFound = false;
+  for (int i = 0; i < networkCount; i++) {
+    if (WiFi.SSID(i) == WIFI_SSID) {
+      Serial.printf("Configured Wi-Fi found (signal %d dBm)\n", WiFi.RSSI(i));
+      configuredNetworkFound = true;
+      break;
+    }
+  }
+  WiFi.scanDelete();
+  if (!configuredNetworkFound) {
+    Serial.println("Configured Wi-Fi was not detected. Keep the hotspot nearby and visible.");
+  }
+
+  Serial.printf("Connecting to Wi-Fi: %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  uint32_t attemptStartedAt = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print('.');
+    if (millis() - attemptStartedAt >= 20000) {
+      const wl_status_t status = WiFi.status();
+      Serial.printf("\nWi-Fi not connected (status %d: %s); retrying\n",
+                    static_cast<int>(status), wifiStatusName(status));
+      attemptStartedAt = millis();
+      WiFi.disconnect();
+      delay(300);
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
   }
   Serial.printf("\nWi-Fi connected; IP: %s\n", WiFi.localIP().toString().c_str());
 }
@@ -88,7 +123,8 @@ void setup() {
   Serial.begin(115200);
   pinMode(RAIN_DO_PIN, INPUT);  // GPIO35 is input-only and has no internal pull-up.
   pinMode(IR_OUT_PIN, INPUT);
-  pinMode(SW420_DO_PIN, INPUT);
+  // Hold the input HIGH while the SW-420 module is disconnected so it cannot float into a false alert.
+  pinMode(SW420_DO_PIN, INPUT_PULLUP);
   analogReadResolution(12);
 
   tlsClient.setCACert(MQTT_ROOT_CA);

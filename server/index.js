@@ -83,7 +83,7 @@ if (brokerUrl && brokerProtocolIsSecure) {
       const receivedAt = Date.now();
       const sensors = parseTelemetry(payload);
       latest = { sensors, receivedAt };
-      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw });
+      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected });
       if (history.length > historyLimit) history.shift();
       broadcast();
     }

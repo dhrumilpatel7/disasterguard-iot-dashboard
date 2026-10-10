@@ -1,4 +1,4 @@
 node_modules/
 dist/
 .env
-firmware/secrets.h
+firmware/**/secrets.h
