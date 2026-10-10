@@ -17,14 +17,15 @@ constexpr bool IR_ACTIVE_LOW = true;
 constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
 constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 50;
+constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
 // The connected SW-420 module is behaving active-low on the user's setup.
 constexpr bool VIBRATION_ACTIVE_LOW = true;
 
 constexpr char MQTT_HOST[] = "o1fbc6cf.ala.asia-southeast1.emqxsl.com";
 constexpr uint16_t MQTT_PORT = 8883;
 constexpr char MQTT_TOPIC[] = "disasterguard/esp32-01/telemetry";
-// Publish four times a second; sensor sampling remains at 50 ms.
-constexpr uint32_t PUBLISH_INTERVAL_MS = 250;
+// Routine telemetry every 2 seconds; sensor sampling remains at 50 ms.
+constexpr uint32_t PUBLISH_INTERVAL_MS = 2000;
 
 WiFiClientSecure tlsClient;
 PubSubClient mqttClient(tlsClient);
@@ -108,7 +109,12 @@ void connectMqtt() {
   }
 }
 
-void sampleSensors(uint32_t now) {
+bool sampleSensors(uint32_t now) {
+  const bool wasRainDetected = rainDetected;
+  const bool wasObjectDetected = objectDetected;
+  const bool wasVibrationDetected = vibrationDetected;
+  const bool wasLightningDetected = lightningDetected;
+
   gasRaw = analogRead(MQ135_PIN);
   lightRaw = analogRead(LDR_PIN);
   rainDetected = readActive(RAIN_DO_PIN, RAIN_ACTIVE_LOW);
@@ -125,6 +131,13 @@ void sampleSensors(uint32_t now) {
     lightningDetected = false;
   }
   previousLight = lightRaw;
+
+  // Publish alert starts promptly. Falling edges are included in the next
+  // regular update, avoiding bursts when a digital sensor chatters.
+  return (!wasRainDetected && rainDetected) ||
+         (!wasObjectDetected && objectDetected) ||
+         (!wasVibrationDetected && vibrationDetected) ||
+         (!wasLightningDetected && lightningDetected);
 }
 
 void publishTelemetry() {
@@ -170,11 +183,14 @@ void loop() {
   mqttClient.loop();
 
   const uint32_t now = millis();
+  bool urgentAlertStarted = false;
   if (now - lastSampleAt >= SENSOR_SAMPLE_INTERVAL_MS) {
     lastSampleAt = now;
-    sampleSensors(now);
+    urgentAlertStarted = sampleSensors(now);
   }
-  if (now - lastPublishAt >= PUBLISH_INTERVAL_MS) {
+  const bool urgentPublishDue = urgentAlertStarted &&
+                                now - lastPublishAt >= URGENT_PUBLISH_MIN_INTERVAL_MS;
+  if (urgentPublishDue || now - lastPublishAt >= PUBLISH_INTERVAL_MS) {
     lastPublishAt = now;
     publishTelemetry();
   }
