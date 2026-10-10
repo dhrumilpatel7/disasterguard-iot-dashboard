@@ -50,8 +50,9 @@ function parseTelemetry(buffer) {
   const sensors = message.sensors ?? message;
   const { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected } = sensors;
   if (![gasRaw, lightRaw].every((value) => Number.isInteger(value) && value >= 0 && value <= 4095)) throw new Error('gasRaw and lightRaw must be ADC readings from 0 to 4095');
-  if (![rainDetected, objectDetected, vibrationDetected, lightningDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, vibrationDetected, and lightningDetected must be booleans');
-  return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected };
+  if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new Error('rainDetected, objectDetected, and vibrationDetected must be booleans');
+  if (lightningDetected !== undefined && typeof lightningDetected !== 'boolean') throw new Error('lightningDetected must be a boolean when provided');
+  return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected: lightningDetected ?? null };
 }
 
 const brokerUrl = process.env.MQTT_URL;
