@@ -20,6 +20,10 @@ constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 50;
 constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
 // The connected SW-420 module is behaving active-low on the user's setup.
 constexpr bool VIBRATION_ACTIVE_LOW = true;
+constexpr uint8_t ALERT_RAIN = 1 << 0;
+constexpr uint8_t ALERT_OBJECT = 1 << 1;
+constexpr uint8_t ALERT_VIBRATION = 1 << 2;
+constexpr uint8_t ALERT_LIGHTNING = 1 << 3;
 
 constexpr char MQTT_HOST[] = "o1fbc6cf.ala.asia-southeast1.emqxsl.com";
 constexpr uint16_t MQTT_PORT = 8883;
@@ -32,6 +36,8 @@ PubSubClient mqttClient(tlsClient);
 uint32_t lastPublishAt = 0;
 uint32_t lastSampleAt = 0;
 uint32_t lightningDetectedAt = 0;
+uint8_t pendingAlertFlags = 0;
+bool lightBaselineReady = false;
 int gasRaw = 0;
 int lightRaw = 0;
 int previousLight = 0;
@@ -109,7 +115,7 @@ void connectMqtt() {
   }
 }
 
-bool sampleSensors(uint32_t now) {
+uint8_t sampleSensors(uint32_t now) {
   const bool wasRainDetected = rainDetected;
   const bool wasObjectDetected = objectDetected;
   const bool wasVibrationDetected = vibrationDetected;
@@ -123,8 +129,15 @@ bool sampleSensors(uint32_t now) {
   const int vibrationLevel = digitalRead(SW420_DO_PIN);
   vibrationDetected = VIBRATION_ACTIVE_LOW ? vibrationLevel == LOW : vibrationLevel == HIGH;
 
+  // Establish the first live sample as the baseline so time spent connecting
+  // to Wi-Fi cannot be mistaken for a sudden flash at boot.
+  if (!lightBaselineReady) {
+    previousLight = lightRaw;
+    lightBaselineReady = true;
+  }
+
   // A sudden drop in the LDR ADC value is treated as a bright flash.
-  if (previousLight - lightRaw >= LIGHTNING_SPIKE_THRESHOLD) {
+  if (lightBaselineReady && previousLight - lightRaw >= LIGHTNING_SPIKE_THRESHOLD) {
     lightningDetected = true;
     lightningDetectedAt = now;
   } else if (lightningDetected && now - lightningDetectedAt >= LIGHTNING_DISPLAY_MS) {
@@ -132,15 +145,21 @@ bool sampleSensors(uint32_t now) {
   }
   previousLight = lightRaw;
 
-  // Publish alert starts promptly. Falling edges are included in the next
-  // regular update, avoiding bursts when a digital sensor chatters.
-  return (!wasRainDetected && rainDetected) ||
-         (!wasObjectDetected && objectDetected) ||
-         (!wasVibrationDetected && vibrationDetected) ||
-         (!wasLightningDetected && lightningDetected);
+  // Remember starts until a publish succeeds. This preserves brief pulses
+  // that occur during the one-second urgent-publish rate limit.
+  uint8_t startedFlags = 0;
+  if (!wasRainDetected && rainDetected) startedFlags |= ALERT_RAIN;
+  if (!wasObjectDetected && objectDetected) startedFlags |= ALERT_OBJECT;
+  if (!wasVibrationDetected && vibrationDetected) startedFlags |= ALERT_VIBRATION;
+  if (!wasLightningDetected && lightningDetected) startedFlags |= ALERT_LIGHTNING;
+  return startedFlags;
 }
 
 void publishTelemetry() {
+  const bool rainForPublish = rainDetected || (pendingAlertFlags & ALERT_RAIN);
+  const bool objectForPublish = objectDetected || (pendingAlertFlags & ALERT_OBJECT);
+  const bool vibrationForPublish = vibrationDetected || (pendingAlertFlags & ALERT_VIBRATION);
+  const bool lightningForPublish = lightningDetected || (pendingAlertFlags & ALERT_LIGHTNING);
   char payload[300];
   snprintf(
       payload,
@@ -148,13 +167,14 @@ void publishTelemetry() {
       "{\"deviceId\":\"esp32-01\",\"sensors\":{\"gasRaw\":%d,\"lightRaw\":%d,\"rainDetected\":%s,\"objectDetected\":%s,\"vibrationDetected\":%s,\"lightningDetected\":%s}}",
       gasRaw,
       lightRaw,
-      rainDetected ? "true" : "false",
-      objectDetected ? "true" : "false",
-      vibrationDetected ? "true" : "false",
-      lightningDetected ? "true" : "false");
+      rainForPublish ? "true" : "false",
+      objectForPublish ? "true" : "false",
+      vibrationForPublish ? "true" : "false",
+      lightningForPublish ? "true" : "false");
 
   if (mqttClient.publish(MQTT_TOPIC, payload)) {
     Serial.printf("Published: %s\n", payload);
+    pendingAlertFlags = 0;
   } else {
     Serial.println("Publish failed");
   }
@@ -166,8 +186,6 @@ void setup() {
   pinMode(IR_OUT_PIN, INPUT);
   pinMode(SW420_DO_PIN, INPUT);
   analogReadResolution(12);
-  previousLight = analogRead(LDR_PIN);
-
   tlsClient.setCACert(MQTT_ROOT_CA);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setKeepAlive(30);
@@ -183,12 +201,11 @@ void loop() {
   mqttClient.loop();
 
   const uint32_t now = millis();
-  bool urgentAlertStarted = false;
   if (now - lastSampleAt >= SENSOR_SAMPLE_INTERVAL_MS) {
     lastSampleAt = now;
-    urgentAlertStarted = sampleSensors(now);
+    pendingAlertFlags |= sampleSensors(now);
   }
-  const bool urgentPublishDue = urgentAlertStarted &&
+  const bool urgentPublishDue = pendingAlertFlags != 0 &&
                                 now - lastPublishAt >= URGENT_PUBLISH_MIN_INTERVAL_MS;
   if (urgentPublishDue || now - lastPublishAt >= PUBLISH_INTERVAL_MS) {
     lastPublishAt = now;

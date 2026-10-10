@@ -40,6 +40,7 @@ let labeledSamples = [];
 let capture = null;
 let hazardModel = null;
 let modelDirty = false;
+let datasetOrigin = 'empty';
 
 function mlSnapshot(sensors = latest?.sensors) {
   const summary = summarizeTraining(labeledSamples);
@@ -47,6 +48,7 @@ function mlSnapshot(sensors = latest?.sensors) {
   return {
     status: trained ? 'ready' : hazardModel ? 'needs_retraining' : 'collecting',
     adminEnabled: Boolean(process.env.ML_ADMIN_TOKEN),
+    datasetOrigin,
     trainedLabels: hazardModel?.labels ?? [],
     ...summary,
     capture: capture ? { active: true, label: capture.label, samplesAdded: capture.samplesAdded } : { active: false },
@@ -121,10 +123,10 @@ function cleanLabeledSamples(samples) {
   });
 }
 
-async function saveTrainingData(samples = labeledSamples) {
+async function saveTrainingData(samples = labeledSamples, origin = datasetOrigin) {
   const temporaryFile = `${trainingFile}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporaryFile, JSON.stringify({ version: 1, samples }), 'utf8');
+    await writeFile(temporaryFile, JSON.stringify({ version: 1, samples, origin, demoOnly: origin === 'synthetic_demo', containsSyntheticData: ['synthetic_demo', 'mixed'].includes(origin) }), 'utf8');
     await rename(temporaryFile, trainingFile);
   } catch (error) {
     await unlink(temporaryFile).catch(() => {});
@@ -158,14 +160,17 @@ app.post('/api/ml/train', requireMlAdmin, (_request, response) => {
 });
 app.get('/api/ml/export', requireMlAdmin, (_request, response) => {
   response.setHeader('Content-Disposition', 'attachment; filename="disasterguard-labeled-readings.json"');
-  response.json({ version: 1, exportedAt: new Date().toISOString(), samples: labeledSamples });
+  response.json({ version: 1, exportedAt: new Date().toISOString(), origin: datasetOrigin,
+    demoOnly: datasetOrigin === 'synthetic_demo', containsSyntheticData: ['synthetic_demo', 'mixed'].includes(datasetOrigin), samples: labeledSamples });
 });
 app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
   try {
     if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) throw new ValidationError('The import file must contain a JSON object.');
     const imported = cleanLabeledSamples(request.body?.samples);
-    await saveTrainingData(imported);
+    const importedOrigin = request.body.demoOnly === true ? 'synthetic_demo' : request.body.containsSyntheticData === true ? 'mixed' : 'imported';
+    await saveTrainingData(imported, importedOrigin);
     labeledSamples = imported;
+    datasetOrigin = importedOrigin;
     capture = null;
     hazardModel = null;
     modelDirty = false;
@@ -177,6 +182,7 @@ app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
 try {
   const saved = JSON.parse(await readFile(trainingFile, 'utf8'));
   labeledSamples = cleanLabeledSamples(saved.samples);
+  datasetOrigin = saved.demoOnly === true ? 'synthetic_demo' : (saved.containsSyntheticData === true ? 'mixed' : (saved.origin || (labeledSamples.length ? 'saved_data' : 'empty')));
   const counts = summarizeTraining(labeledSamples).counts;
   const trainedLabels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => counts[id] >= 20);
   if (trainedLabels.length >= 2) hazardModel = trainHazardTree(labeledSamples.filter((sample) => trainedLabels.includes(sample.label)));
@@ -213,6 +219,8 @@ if (brokerUrl && brokerProtocolIsSecure) {
       const sensors = parseTelemetry(payload);
       latest = { sensors, receivedAt };
       if (capture && labeledSamples.length < 20_000) {
+        if (datasetOrigin === 'empty') datasetOrigin = 'captured';
+        else if (datasetOrigin === 'synthetic_demo' || datasetOrigin === 'imported') datasetOrigin = 'mixed';
         labeledSamples.push({ label: capture.label, sensors, at: receivedAt });
         capture.samplesAdded += 1;
         modelDirty = Boolean(hazardModel);
