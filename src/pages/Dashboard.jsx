@@ -25,9 +25,24 @@ const chartOptions = [
 ];
 const aiGuideOptions = [
   ['ml-basics', 'How the ML model works'],
-  ['adc-readings', 'What raw ADC means'],
+  ['ml-accuracy', 'Understanding model accuracy'],
+  ['ml-prediction', 'How to read an ML prediction'],
   ['training-data', 'How to collect safe training data'],
-  ['sensor-limits', 'Sensor limitations'],
+  ['sensor-limits', 'What this project cannot confirm'],
+  ['adc-readings', 'Understanding raw ADC values'],
+  ['gas-sensor', 'MQ-135 readings and gas thresholds'],
+  ['vibration-sensor', 'SW-420 vibration trigger troubleshooting'],
+  ['rain-sensor', 'Rain sensor trigger troubleshooting'],
+  ['object-sensor', 'IR object sensor troubleshooting'],
+  ['lightning-sensor', 'LDR spikes and light-flash detection'],
+  ['multiple-hazards', 'How simultaneous alerts are counted'],
+  ['offline-status', 'Why the dashboard says awaiting data'],
+  ['mqtt-overview', 'How MQTT connects the ESP32 to the dashboard'],
+  ['telemetry-format', 'What the ESP32 telemetry message contains'],
+  ['charts', 'How to read the interactive sensor charts'],
+  ['threshold-setting', 'Choosing a gas alert threshold'],
+  ['wifi-troubleshooting', 'ESP32 Wi-Fi connection troubleshooting'],
+  ['deployment-security', 'Keeping the hosted dashboard and keys secure'],
 ];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 

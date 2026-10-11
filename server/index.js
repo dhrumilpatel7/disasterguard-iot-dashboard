@@ -22,9 +22,24 @@ const aiDailyLimit = 10;
 const aiMinimumIntervalMs = 30_000;
 const aiGuideTopics = Object.freeze({
   'ml-basics': 'Explain in simple terms how a supervised decision tree learns from labeled sensor examples, what its validation accuracy means, and why it cannot prove a real disaster.',
-  'adc-readings': 'Explain what raw ADC readings mean for an ESP32 analog input and why an MQ-135 value is not a calibrated gas concentration and an LDR value is not lux.',
+  'ml-accuracy': 'Explain held-out accuracy and balanced accuracy in simple terms, including how small or correlated sensor datasets can make both scores unreliable.',
+  'ml-prediction': 'Explain how to read this dashboard’s decision-tree prediction, confidence or leaf match, and direct sensor triggers. Clarify that these are sensor patterns, not confirmed emergencies.',
   'training-data': 'Give safe, practical advice for collecting balanced labeled examples for a student sensor-pattern classifier. Do not recommend creating smoke, fire, toxic gas, strong vibration, or any unsafe condition.',
   'sensor-limits': 'Explain the limits of simple MQ-135, rain, IR, SW-420, and LDR modules. Distinguish sensor triggers from confirmed fire, storm, earthquake, object identity, or lightning.',
+  'adc-readings': 'Explain what raw ADC readings mean for an ESP32 analog input and why an MQ-135 value is not a calibrated gas concentration and an LDR value is not lux.',
+  'gas-sensor': 'Explain how an MQ-135 module and raw ADC readings behave, why it needs warm-up and calibration, and how a user-set threshold is only a project alert threshold, not a safety limit.',
+  'vibration-sensor': 'Give safe troubleshooting steps for an SW-420 digital output that seems inverted: check module potentiometer, DO polarity, wiring, and firmware logic. Do not suggest dangerous vibration tests.',
+  'rain-sensor': 'Explain common rain-module digital-output polarity and how to safely verify whether its DO pin is active LOW or active HIGH before changing software logic.',
+  'object-sensor': 'Explain how a basic IR obstacle module detects a nearby object, why distance and surface affect it, and how to check output polarity and wiring.',
+  'lightning-sensor': 'Explain that an LDR can detect sudden light changes but cannot confirm lightning. Describe baseline, spike threshold, ambient-light effects, and safe flashlight testing.',
+  'multiple-hazards': 'Explain that each active sensor trigger should count as a separate signal and how the dashboard may display multiple simultaneous warnings without claiming a confirmed disaster.',
+  'offline-status': 'Explain the difference between ESP32 Wi-Fi, MQTT broker connectivity, server telemetry receipt, stale data, and an Awaiting data dashboard state; give a short diagnostic order.',
+  'mqtt-overview': 'Explain the ESP32-to-cloud-MQTT-to-Node-server-to-dashboard data path using simple terms, including why TLS and the server-side broker credentials matter.',
+  'telemetry-format': 'Describe the expected JSON telemetry fields in this project: gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, and optional lightningDetected. Give a small example and explain types.',
+  'charts': 'Explain how to read the dashboard’s interactive time-series charts, hover values, timestamps, missing data, and why short in-memory history is not a permanent archive.',
+  'threshold-setting': 'Explain how the adjustable gas alert threshold from 0 to 1500 ADC changes this project’s warning display, and why it is not a calibrated fire or toxic-gas alarm limit.',
+  'wifi-troubleshooting': 'Give a concise, safe checklist for ESP32 Wi-Fi troubleshooting: 2.4 GHz compatibility, hotspot visibility, exact SSID/password, signal strength, and serial status.',
+  'deployment-security': 'Explain how to keep this hosted dashboard safer: store Gemini, MQTT, and ML admin secrets only in server environment variables; never expose or commit them; use HTTPS and rotate leaked keys.',
 });
 let mqttState = process.env.MQTT_URL ? 'connecting' : 'not_configured';
 let latest = null;
