@@ -29,7 +29,7 @@ function SensorCard({ card, value, online, gasThreshold, model, onSelect, select
   const modelReady = card.kind === 'model' && Boolean(model?.prediction);
   const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
-  const modelAlert = card.kind === 'model' && hasValue && model.prediction.warning && (model.prediction.source === 'sensor_trigger' || model.prediction.confidence >= 0.6);
+  const modelAlert = card.kind === 'model' && hasValue && (model.prediction.source === 'sensor_trigger' || (model.prediction.warning && model.prediction.confidence >= 0.6));
   const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? modelAlert : card.kind === 'boolean' && value);
   const display = !hasValue ? card.kind === 'model' && online ? model?.status === 'needs_retraining' ? 'Retrain after new labels' : 'Collect labeled readings' : 'Awaiting data'
     : card.kind === 'gas' ? gasAlert ? 'Possible fire / gas hazard' : value.toLocaleString()
