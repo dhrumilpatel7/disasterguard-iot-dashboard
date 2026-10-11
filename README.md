@@ -25,7 +25,7 @@ The old unsupervised anomaly score has been removed. The replacement is a small,
 
 Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
 
-When the ESP32 lightning flag is active, the ML card gives that direct signal priority and displays “Sudden light flash” with its source identified. Other classifications continue to come from the trained decision tree.
+Direct sensor cards report current GPIO/ADC triggers. The ML pattern card is separate: it only displays a decision-tree classification after the model has trained, and shows a learned pattern label, leaf-match score, and decision path. A prediction can still match the selected training label (for example, an object-associated pattern) because that is what supervised classification is designed to learn; it is not a second independent sensor or proof of an event.
 
 The labeled dataset is stored locally on the server. Render's free service filesystem can reset after a restart or redeploy, so download the labeled data for backup or configure persistent storage before relying on long-term retention.
 

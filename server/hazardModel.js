@@ -132,20 +132,8 @@ export function trainHazardTree(samples) {
 }
 
 export function predictHazard(model, sensors) {
-  // Preserve the high-priority ESP32 flash event even when the learned tree
-  // would otherwise classify the same readings as normal.
-  if (sensors.lightningDetected === true) {
-    return { label: 'Sudden light flash', classId: 'light_flash', warning: true,
-      confidence: null, leafSamples: 0, source: 'sensor_trigger',
-      reasons: ['ESP32 lightningDetected signal is active'] };
-  }
-  // Show an active object trigger even before a learned tree exists. This is a
-  // direct sensor status, not a claim that the object is a hazard.
-  if (sensors.objectDetected === true) {
-    return { label: 'Object sensor trigger', classId: 'object', warning: false,
-      confidence: null, leafSamples: 0, source: 'sensor_trigger',
-      reasons: ['ESP32 objectDetected signal is active'] };
-  }
+  // Keep this path purely learned: direct sensor cards report raw triggers.
+  // The ML card should not echo a GPIO state or claim a prediction before training.
   if (!model) return null;
   const features = featuresFor(sensors);
   let node = model.root;

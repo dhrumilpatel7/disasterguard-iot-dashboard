@@ -17,8 +17,16 @@ const cards = [
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected', chart: 'lightningDetected' },
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading', chart: 'lightRaw' },
-  { key: 'hazardPrediction', title: 'ML signal classification', icon: 'ML', detail: 'Decision tree with direct sensor alerts', kind: 'model', active: 'Model suggests a sensor pattern', clear: 'No trained match', chart: 'modelClass' },
+  { key: 'hazardPrediction', title: 'ML pattern analysis', icon: 'ML', detail: 'Learned decision tree · labeled examples', kind: 'model', active: 'Learned warning pattern', clear: 'No learned match', chart: 'modelClass' },
 ];
+const learnedPatternLabels = {
+  normal: 'Stable sensor pattern',
+  gas_signal: 'Gas-like sensor pattern',
+  rain_signal: 'Rain-associated pattern',
+  vibration: 'Vibration-associated pattern',
+  light_flash: 'Sudden light-flash pattern',
+  object: 'Object-associated pattern',
+};
 const chartOptions = [
   ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['modelClass', 'ML class'], ['vibrationDetected', 'Vibration'],
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
@@ -101,18 +109,18 @@ function SensorCard({ card, value, online, gasThreshold, model, onSelect, select
   const modelReady = card.kind === 'model' && Boolean(model?.prediction);
   const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
-  const modelAlert = card.kind === 'model' && hasValue && (model.prediction.source === 'sensor_trigger' || (model.prediction.warning && model.prediction.confidence >= 0.6));
+  const modelAlert = card.kind === 'model' && hasValue && model.prediction.source === 'decision_tree' && model.prediction.warning && model.prediction.confidence >= 0.6;
   const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? modelAlert : card.kind === 'boolean' && value);
   const display = !hasValue ? card.kind === 'model' && online ? model?.status === 'needs_retraining' ? 'Retrain after new labels' : 'Collect labeled readings' : 'Awaiting data'
     : card.kind === 'gas' ? gasAlert ? 'Possible fire / gas hazard' : value.toLocaleString()
-      : card.kind === 'model' ? model.prediction.label
+      : card.kind === 'model' ? learnedPatternLabels[model.prediction.classId] || 'Unmapped learned pattern'
       : card.kind === 'reading' ? value.toLocaleString() : value ? card.active : card.clear;
   const state = !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' || card.kind === 'model' ? 'reading' : 'normal';
   const footerState = state === 'waiting' ? card.kind === 'model' && online ? `${model?.total ?? 0} labeled` : 'Waiting' : triggered ? 'Review' : card.kind === 'model' ? 'Model ready' : 'Live';
   return <button id={`sensor-${card.key}`} type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
     <span className="card-top"><span className="sensor-icon">{card.icon}</span><span className={`state-dot ${state}`} /></span>
     <span className="eyebrow">{card.title}</span>
-    <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {model.prediction.source === 'sensor_trigger' ? 'direct sensor trigger' : `${Math.round(model.prediction.confidence * 100)}% leaf match`}</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
+    <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {Math.round(model.prediction.confidence * 100)}% leaf match</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
     {card.kind === 'gas' && hasValue && <span className="gas-meter" aria-label={`Gas reading ${value} of 4095`}><span style={{ width: `${Math.min((value / 4095) * 100, 100)}%` }} /></span>}
     {card.kind === 'model' && <span className="model-detail">{hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · auto-training' : 'Needs 20 labeled readings in at least 2 categories'}</span>}
     <span className="card-foot"><span>{card.detail}</span><span className="card-state">{footerState}</span></span>
@@ -322,7 +330,7 @@ export default function Dashboard() {
       <p className="ml-caution">Collect at least 20 real readings for any two categories to train; the model only predicts categories with enough examples. Its labels describe sensor patterns, not confirmed earthquake, storm or fire events. Never create smoke, fire, toxic gas, or unsafe conditions to collect examples.</p>
     </section>
     <section className="ai-guide-panel">
-      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">OPTIONAL · ON-DEMAND</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
+      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
       <div className="ai-guide-controls"><label>Choose a topic<select value={aiTopic} onChange={(event) => setAiTopic(event.target.value)}>{aiGuideOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
       {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
       <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only the fixed topic you select. The guide never receives live sensor readings, alerts, training data, or ML results. The app limits requests to 10 per day; Google applies its own free-tier quotas and may use free-tier prompts to improve its products.</p>
