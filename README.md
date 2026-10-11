@@ -31,9 +31,9 @@ The labeled dataset is stored locally on the server. Render's free service files
 
 ## Optional AI field guide
 
-The dashboard can use the OpenAI Responses API for short, manually requested explanations of four fixed topics: the decision tree, raw ADC readings, safe training data collection, and sensor limitations. It does **not** receive live sensor readings, alerts, training examples, or model predictions. This is a general project guide, not live AI hazard analysis. Requests require the existing `ML_ADMIN_TOKEN`, are limited to 10 per server instance per day with a 30-second cooldown, and can incur OpenAI API charges.
+The dashboard can use the Google Gemini Developer API free tier for short, manually requested explanations of four fixed topics: the decision tree, raw ADC readings, safe training data collection, and sensor limitations. It does **not** receive live sensor readings, alerts, training examples, or model predictions. This is a general project guide, not live AI hazard analysis. Requests require the existing `ML_ADMIN_TOKEN`, are limited to 10 per server instance per day with a 30-second cooldown, and are also subject to Google's free-tier quotas. Google states that content submitted on the free tier may be used to improve its products.
 
-Set `OPENAI_API_KEY` as a private environment variable in Render (or in local `.env`). The optional `OPENAI_MODEL` defaults to `gpt-4o-mini`. Never place the API key in React code or commit it. The server sends only the fixed topic prompt, sets `store: false`, and limits response length. If you want AI to analyze live readings in the future, that would require separate explicit approval to send those readings to OpenAI.
+Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey) and set it as the private `GEMINI_API_KEY` environment variable in Render. Keep the project on Google's free tier and do not link billing if you want to avoid paid API usage; requests can stop when free quotas are reached. The optional `GEMINI_MODEL` defaults to `gemini-3.1-flash-lite`, which Google lists with free-tier input and output. Never place the API key in React code or commit it. The server sends only one fixed topic prompt per manual request. No live readings are sent to Gemini.
 
 ## Telemetry contract
 

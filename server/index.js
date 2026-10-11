@@ -89,7 +89,7 @@ function snapshot() {
   const age = latest ? Date.now() - latest.receivedAt : null;
   return {
     mqtt: mqttState,
-    aiEnabled: Boolean(process.env.OPENAI_API_KEY),
+    aiEnabled: Boolean(process.env.GEMINI_API_KEY),
     device: latest && age <= staleAfterMs ? 'online' : 'offline',
     deviceId: process.env.DEVICE_ID || 'esp32-01',
     lastSeen: latest?.receivedAt ?? null,
@@ -171,8 +171,8 @@ async function saveTrainingData(samples = labeledSamples, origin = datasetOrigin
 
 app.get('/api/ml/summary', (_request, response) => response.json(mlSnapshot()));
 app.post('/api/ai/guide', requireMlAdmin, async (request, response) => {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return response.status(503).json({ error: 'AI guide is not configured. Add OPENAI_API_KEY to the server environment.' });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return response.status(503).json({ error: 'AI guide is not configured. Add GEMINI_API_KEY to the server environment.' });
   const prompt = aiGuideTopics[request.body?.topic];
   if (!prompt) return response.status(400).json({ error: 'Choose one of the listed AI guide topics.' });
   const now = Date.now();
@@ -180,36 +180,33 @@ app.post('/api/ai/guide', requireMlAdmin, async (request, response) => {
   if (aiGuideRequestsUsed >= aiDailyLimit) return response.status(429).json({ error: 'Daily AI guide limit reached. Try again after the limit resets.' });
   if (now - aiLastGuideRequestAt < aiMinimumIntervalMs) return response.status(429).json({ error: 'Please wait 30 seconds before requesting another AI explanation.' });
 
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
   aiLastGuideRequestAt = now;
   aiGuideRequestsUsed += 1;
   try {
-    const aiResponse = await fetch('https://api.openai.com/v1/responses', {
+    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
-        model,
-        store: false,
-        max_output_tokens: 220,
-        instructions: 'You are a friendly tutor for the DisasterGuard student IoT dashboard. Explain general concepts simply and briefly (at most 100 words). You do not have access to the dashboard, current readings, alerts, training data, or model output. Never claim to analyze live conditions or confirm a real emergency. Keep safety guidance conservative.',
-        input: prompt,
+        system_instruction: { parts: [{ text: 'You are a friendly tutor for the DisasterGuard student IoT dashboard. Explain general concepts simply and briefly (at most 100 words). You do not have access to the dashboard, current readings, alerts, training data, or model output. Never claim to analyze live conditions or confirm a real emergency. Keep safety guidance conservative.' }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 220, temperature: 0.3 },
       }),
     });
     const result = await aiResponse.json().catch(() => ({}));
     if (!aiResponse.ok) {
-      const message = aiResponse.status === 401 ? 'OpenAI rejected the API key. Check OPENAI_API_KEY in Render.'
-        : aiResponse.status === 429 ? 'OpenAI rate limit or account quota reached. Check your API account usage.'
-          : 'OpenAI could not generate an explanation. Try again later.';
+      const message = aiResponse.status === 400 || aiResponse.status === 403 ? 'Gemini rejected the API key or model. Check GEMINI_API_KEY and GEMINI_MODEL in Render.'
+        : aiResponse.status === 429 ? 'Gemini free-tier rate limit reached. Wait for its quota to reset, then try again.'
+          : 'Gemini could not generate an explanation. Try again later.';
       return response.status(aiResponse.status === 429 ? 429 : 502).json({ error: message });
     }
-    const explanation = result.output_text || (result.output || []).flatMap((item) => item.content || [])
-      .filter((item) => item.type === 'output_text' && typeof item.text === 'string').map((item) => item.text).join('\n').trim();
-    if (!explanation) return response.status(502).json({ error: 'OpenAI returned an empty explanation. Please try again.' });
+    const explanation = (result.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').join('\n').trim();
+    if (!explanation) return response.status(502).json({ error: 'Gemini returned an empty explanation. Please try again.' });
     return response.json({ explanation, generatedAt: now, topic: request.body.topic });
   } catch (error) {
     console.error('AI guide request failed:', error.name || 'unknown error');
-    return response.status(502).json({ error: error.name === 'TimeoutError' ? 'The AI explanation timed out. Try again.' : 'Could not reach OpenAI. Try again later.' });
+    return response.status(502).json({ error: error.name === 'TimeoutError' ? 'The AI explanation timed out. Try again.' : 'Could not reach Gemini. Try again later.' });
   }
 });
 app.post('/api/ml/capture', requireMlAdmin, (request, response) => {
