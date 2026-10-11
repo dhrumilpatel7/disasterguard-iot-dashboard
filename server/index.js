@@ -70,16 +70,22 @@ let hazardModel = null;
 let modelDirty = false;
 let datasetOrigin = 'empty';
 let lastTrainedLabeledCount = 0;
+let lastTrainingSampleCount = 0;
+let lastTrainingAt = null;
+let lastTrainingMode = null;
 
-function retrainIfReady(force = false) {
+function retrainIfReady(force = false, mode = 'automatic') {
   const summary = summarizeTraining(labeledSamples);
   if (summary.trainableLabels.length < summary.minimumClasses) return false;
   if (!force && hazardModel && labeledSamples.length - lastTrainedLabeledCount < autoTrainEverySamples) return false;
   const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
   hazardModel = trainHazardTree(trainingSamples);
   lastTrainedLabeledCount = labeledSamples.length;
+  lastTrainingSampleCount = trainingSamples.length;
   modelDirty = false;
-  console.log(`Automatically trained model with ${trainingSamples.length} labeled readings.`);
+  lastTrainingAt = Date.now();
+  lastTrainingMode = mode;
+  console.log(`${mode === 'automatic' ? 'Automatically trained' : 'Trained'} model with ${trainingSamples.length} labeled readings (${mode}).`);
   return true;
 }
 
@@ -91,6 +97,11 @@ function mlSnapshot(sensors = latest?.sensors) {
     adminEnabled: Boolean(process.env.ML_ADMIN_TOKEN),
     autoTraining: true,
     autoTrainEverySamples,
+    samplesSinceTraining: hazardModel ? Math.max(0, labeledSamples.length - lastTrainedLabeledCount) : 0,
+    samplesUntilAutoTrain: hazardModel ? Math.max(0, autoTrainEverySamples - (labeledSamples.length - lastTrainedLabeledCount)) : null,
+    lastTrainingAt,
+    lastTrainingMode,
+    lastTrainingSamples: hazardModel ? lastTrainingSampleCount : 0,
     datasetOrigin,
     trainedLabels: hazardModel?.labels ?? [],
     validation: hazardModel?.validation ?? null,
@@ -244,7 +255,10 @@ app.post('/api/ml/train', requireMlAdmin, (_request, response) => {
   const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
   hazardModel = trainHazardTree(trainingSamples);
   lastTrainedLabeledCount = labeledSamples.length;
+  lastTrainingSampleCount = trainingSamples.length;
   modelDirty = false;
+  lastTrainingAt = Date.now();
+  lastTrainingMode = 'manual';
   broadcast();
   response.json(mlSnapshot());
 });
@@ -265,7 +279,10 @@ app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
     hazardModel = null;
     modelDirty = false;
     lastTrainedLabeledCount = 0;
-    retrainIfReady(true);
+    lastTrainingSampleCount = 0;
+    lastTrainingAt = null;
+    lastTrainingMode = null;
+    retrainIfReady(true, 'imported data');
     broadcast();
     response.json(mlSnapshot());
   } catch (error) { next(error); }
@@ -277,7 +294,7 @@ try {
   datasetOrigin = saved.demoOnly === true ? 'synthetic_demo' : (saved.containsSyntheticData === true ? 'mixed' : (saved.origin || (labeledSamples.length ? 'saved_data' : 'empty')));
   const counts = summarizeTraining(labeledSamples).counts;
   const trainedLabels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => counts[id] >= 20);
-  if (trainedLabels.length >= 2) retrainIfReady(true);
+  if (trainedLabels.length >= 2) retrainIfReady(true, 'restored saved data');
   console.log(`Loaded ${labeledSamples.length} labeled ML readings.`);
 } catch (error) { if (error.code !== 'ENOENT') console.error('Could not load ML training data:', error.message); }
 

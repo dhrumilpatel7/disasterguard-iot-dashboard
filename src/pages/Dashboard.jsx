@@ -45,6 +45,30 @@ const aiGuideOptions = [
   ['deployment-security', 'Keeping the hosted dashboard and keys secure'],
 ];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
+function getTrainingProgress(ml = {}, online) {
+  const capture = ml.capture;
+  const sampleCount = ml.total || 0;
+  const readyCount = ml.trainableLabels?.length || 0;
+  const readyForFirstModel = readyCount >= (ml.minimumClasses || 2);
+  const labelName = ml.classes?.find((item) => item.id === capture?.label)?.label || capture?.label;
+  if (capture?.active) {
+    const flashNote = capture.label === 'light_flash' ? ' Only ESP32 readings with lightningDetected=true count for this label.' : '';
+    return { title: `Capturing ${labelName}`, detail: `${capture.samplesAdded || 0} readings collected in this session. Samples are saved with this label.${flashNote}` };
+  }
+  if (ml.status === 'needs_retraining') {
+    const remaining = ml.samplesUntilAutoTrain ?? 0;
+    return { title: 'Collecting readings for the next automatic retrain', detail: `${ml.samplesSinceTraining || 0} of ${ml.autoTrainEverySamples || 20} new labeled readings collected; ${remaining} more needed. The current trained model remains active until then.` };
+  }
+  if (ml.status === 'ready') {
+    const mode = ml.lastTrainingMode === 'automatic' ? 'trained automatically' : ml.lastTrainingMode === 'manual' ? 'trained manually' : ml.lastTrainingMode === 'imported data' ? 'trained from imported data' : ml.lastTrainingMode === 'restored saved data' ? 'restored from saved data' : 'trained from saved data';
+    const when = ml.lastTrainingAt ? ` at ${timeLabel(ml.lastTrainingAt)}` : '';
+    return { title: 'Model trained and active', detail: `The model was ${mode} using ${ml.lastTrainingSamples || sampleCount} labeled readings${when}. It automatically retrains after every ${ml.autoTrainEverySamples || 20} additional labeled readings.` };
+  }
+  if (!sampleCount) {
+    return { title: 'No labeled readings collected yet', detail: `${online ? 'Live readings appear on the dashboard but do not train a supervised model by themselves. ' : 'Connect the ESP32 first. Once online, '}Select the condition you are observing and click “Record this condition.” At least 20 readings in each of 2 labels are needed for the first model.` };
+  }
+  return { title: `${readyCount} of 2 labels ready for the first model`, detail: readyForFirstModel ? 'The server will train automatically as soon as it processes the next labeled reading.' : `Collect at least 20 readings in any 2 labels. Your ${sampleCount} captured readings are saved; continue recording the actual observed condition.` };
+}
 
 function renderGuideInline(text, keyPrefix) {
   const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g).filter(Boolean);
@@ -259,6 +283,7 @@ export default function Dashboard() {
     document.getElementById(`sensor-${card?.key || key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   const mqttLabel = ({ connected: 'Secure broker connected', connecting: 'Connecting to broker', disconnected: 'Broker disconnected', not_configured: 'Broker not configured', invalid_config: 'Secure broker URL required', unavailable: 'Dashboard server unavailable' })[data.mqtt] || 'Broker status unknown';
+  const trainingProgress = getTrainingProgress(data.ml, online);
   return <main className={`shell ${theme}`}>
     <header className="topbar">
       <a className="brand" href="#top" aria-label="DisasterGuard home"><span className="brand-mark">D<span>·</span></span><span>DISASTER<span className="brand-light">GUARD</span><small>INCIDENT COMMAND</small></span></a>
@@ -277,13 +302,14 @@ export default function Dashboard() {
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
     <section className="ml-panel">
-      <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Live data and automatic training</h2><p>Only readings collected while you record a selected label are saved for training.</p></div><div className="ml-statuses"><span className="model-status ready">AUTO-TRAIN ON</span><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.status === 'ready' ? `TRAINED · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? 'NEW LABELS · AUTO-TRAINING' : 'NEEDS LABELED DATA'}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
-      <p className="ml-import-note">The model auto-trains after it has 20 readings in at least two labels, then after every 20 additional labeled readings.</p>
+      <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Live data and automatic training</h2><p>Live readings only become training examples while you capture them with the correct label.</p></div><div className="ml-statuses"><span className="model-status ready">AUTO-TRAIN ENABLED</span><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.capture?.active ? 'CAPTURE ACTIVE' : data.ml?.status === 'ready' ? `MODEL READY · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? `NEXT RETRAIN · ${data.ml.samplesUntilAutoTrain} TO GO` : `${data.ml?.trainableLabels?.length || 0}/2 LABELS READY`}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
+      <div className={`ml-progress-card ${data.ml?.capture?.active ? 'capturing' : data.ml?.status === 'ready' ? 'trained' : ''}`} aria-live="polite"><span className="ml-progress-pulse" /><div><strong>{trainingProgress.title}</strong><p>{trainingProgress.detail}</p></div></div>
+      <p className="ml-import-note">First training starts automatically after 20 labeled readings in each of 2 categories. A trained model then refreshes after every 20 additional labeled readings. Unlabeled telemetry is never guessed or silently added to the training set.</p>
       {data.ml?.validation && <p className="ml-validation">{data.ml.validation.folds}-fold held-out check · {Math.round(data.ml.validation.accuracy * 100)}% accuracy · {Math.round(data.ml.validation.balancedAccuracy * 100)}% balanced accuracy across {data.ml.validation.samples} readings. This checks labeled sensor patterns only; it does not validate real-world hazard detection.</p>}
       {['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <p className="ml-demo-warning" role="status">This dataset contains synthetic readings. Model results are for demonstration only and do not describe current real-world hazards.</p>}
       {!data.ml?.adminEnabled ? <div className="ml-setup-note">Set <code>ML_ADMIN_TOKEN</code> in the Render service environment before using model training controls.</div> : <>
         <label className="ml-key">Training access key<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Enter the key set in Render" /></label>
-        <div className="ml-counts">{(data.ml?.classes || []).map((item) => <div className="ml-count" key={item.id}><span>{item.label}</span><strong>{data.ml?.counts?.[item.id] || 0} <small>/ 20</small></strong></div>)}</div>
+        <div className="ml-counts">{(data.ml?.classes || []).map((item) => { const count = data.ml?.counts?.[item.id] || 0; const percent = Math.min(100, count / (data.ml?.minimumPerClass || 20) * 100); return <div className={`ml-count${count >= (data.ml?.minimumPerClass || 20) ? ' complete' : ''}`} key={item.id}><div className="ml-count-top"><span>{item.label}</span><strong>{count} <small>/ {data.ml?.minimumPerClass || 20}</small></strong></div><div className="ml-count-track" aria-label={`${item.label}: ${count} of ${data.ml?.minimumPerClass || 20} readings`}><span style={{ width: `${percent}%` }} /></div></div>; })}</div>
         <div className="ml-capture-row"><label>Label the current sensor condition<select value={trainingLabel} onChange={(event) => setTrainingLabel(event.target.value)} disabled={Boolean(data.ml?.capture?.active)}>{(data.ml?.classes || []).map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
           {data.ml?.capture?.active ? <button className="ml-button stop" type="button" disabled={trainingBusy} onClick={() => runMlAction('/api/ml/capture', { method: 'DELETE' }, 'Capture stopped. Review the counts, then continue with the next condition.')}>Stop capture · {data.ml.capture.samplesAdded} readings</button> : <button className="ml-button" type="button" disabled={trainingBusy || !adminToken || !online} onClick={() => runMlAction('/api/ml/capture', { method: 'POST', body: JSON.stringify({ label: trainingLabel }) }, 'Capture started. Keep this condition steady, then stop it.')}>Record this condition</button>}
           <button className="ml-button primary" type="button" disabled={trainingBusy || !adminToken || data.ml?.trainableLabels?.length < 2 || data.ml?.capture?.active} onClick={() => runMlAction('/api/ml/train', { method: 'POST', body: '{}' }, 'Model trained on your labeled readings.')}>Train model now</button>
