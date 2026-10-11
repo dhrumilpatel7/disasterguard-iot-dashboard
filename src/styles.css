@@ -220,7 +220,13 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .ai-privacy-note code{font:10px 'DM Mono',monospace;color:var(--orange)}
 .ai-explanation{margin-top:14px;border:1px solid #286276;border-radius:7px;background:#101f2b;padding:12px;color:var(--text);font-size:12px;line-height:1.7}
 .ai-explanation strong{color:var(--cyan)}
-.ai-explanation p{margin:6px 0 0}
+.ai-markdown{margin-top:7px;overflow-wrap:anywhere}
+.ai-markdown p{margin:0 0 9px}
+.ai-markdown p:last-child{margin-bottom:0}
+.ai-markdown h3{font:600 12px Manrope,sans-serif;color:var(--cyan);margin:10px 0 5px}
+.ai-markdown ul,.ai-markdown ol{margin:5px 0 10px;padding-left:20px}
+.ai-markdown li{padding-left:3px;margin:3px 0}
+.ai-markdown code{font:11px 'DM Mono',monospace;color:var(--cyan);background:rgba(87,210,232,.08);padding:1px 4px;border-radius:3px}
 .shell.light .ml-panel{background:#fff;border-color:#d3ddea}
 .shell.light .ml-key,.shell.light .ml-capture-row>label,.shell.light .ml-count{color:#52647b}
 .shell.light .ml-key input,.shell.light .ml-capture-row select,.shell.light .ml-count{background:#f7f9fc;border-color:#d3ddea;color:#1d2b3e}

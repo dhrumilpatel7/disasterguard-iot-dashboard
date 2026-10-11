@@ -46,6 +46,33 @@ const aiGuideOptions = [
 ];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 
+function renderGuideInline(text, keyPrefix) {
+  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g).filter(Boolean);
+  return tokens.map((token, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (token.startsWith('**') && token.endsWith('**')) return <strong key={key}>{token.slice(2, -2)}</strong>;
+    if (token.startsWith('`') && token.endsWith('`')) return <code key={key}>{token.slice(1, -1)}</code>;
+    if (token.startsWith('*') && token.endsWith('*')) return <em key={key}>{token.slice(1, -1)}</em>;
+    return token;
+  });
+}
+
+function GuideMarkdown({ text }) {
+  const blocks = String(text || '').trim().split(/\n\s*\n/).filter(Boolean);
+  return blocks.map((block, blockIndex) => {
+    const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+    const heading = lines.length === 1 && lines[0].match(/^#{1,3}\s+(.+)$/);
+    if (heading) return <h3 key={`heading-${blockIndex}`}>{renderGuideInline(heading[1], `heading-${blockIndex}`)}</h3>;
+    const listItems = lines.map((line) => line.match(/^(?:[-*•])\s+(.+)$/) || line.match(/^\d+[.)]\s+(.+)$/));
+    if (listItems.every(Boolean)) {
+      const ordered = /^\d+[.)]\s+/.test(lines[0]);
+      const List = ordered ? 'ol' : 'ul';
+      return <List key={`list-${blockIndex}`}>{listItems.map((item, itemIndex) => <li key={`item-${blockIndex}-${itemIndex}`}>{renderGuideInline(item[1], `item-${blockIndex}-${itemIndex}`)}</li>)}</List>;
+    }
+    return <p key={`paragraph-${blockIndex}`}>{renderGuideInline(lines.join(' '), `paragraph-${blockIndex}`)}</p>;
+  });
+}
+
 function SensorCard({ card, value, online, gasThreshold, model, onSelect, selected }) {
   const modelReady = card.kind === 'model' && Boolean(model?.prediction);
   const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
@@ -273,7 +300,7 @@ export default function Dashboard() {
       <div className="ai-guide-controls"><label>Choose a topic<select value={aiTopic} onChange={(event) => setAiTopic(event.target.value)}>{aiGuideOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
       {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
       <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only the fixed topic you select. The guide never receives live sensor readings, alerts, training data, or ML results. The app limits requests to 10 per day; Google applies its own free-tier quotas and may use free-tier prompts to improve its products.</p>
-      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><p>{aiExplanation}</p></div>}
+      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
       {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
     </section>
     <section className="threshold-panel">
