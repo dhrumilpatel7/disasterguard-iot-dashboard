@@ -105,24 +105,25 @@ function GuideMarkdown({ text }) {
   });
 }
 
-function SensorCard({ card, value, online, gasThreshold, model, onSelect, selected }) {
+function SensorCard({ card, value, online, gasThreshold, model, liveSensors, onSelect, selected }) {
   const modelReady = card.kind === 'model' && Boolean(model?.prediction);
   const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
+  const objectSignalActive = card.kind === 'model' && online && liveSensors?.objectDetected === true;
   const modelAlert = card.kind === 'model' && hasValue && model.prediction.source === 'decision_tree' && model.prediction.warning && model.prediction.confidence >= 0.6;
-  const triggered = hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'model' ? modelAlert : card.kind === 'boolean' && value);
+  const triggered = card.kind === 'model' ? objectSignalActive || modelAlert : hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'boolean' && value);
   const display = !hasValue ? card.kind === 'model' && online ? model?.status === 'needs_retraining' ? 'Retrain after new labels' : 'Collect labeled readings' : 'Awaiting data'
     : card.kind === 'gas' ? gasAlert ? 'Possible fire / gas hazard' : value.toLocaleString()
       : card.kind === 'model' ? learnedPatternLabels[model.prediction.classId] || 'Unmapped learned pattern'
       : card.kind === 'reading' ? value.toLocaleString() : value ? card.active : card.clear;
-  const state = !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' || card.kind === 'model' ? 'reading' : 'normal';
+  const state = objectSignalActive ? 'alert' : !hasValue ? 'waiting' : triggered ? 'alert' : card.kind === 'reading' || card.kind === 'gas' || card.kind === 'model' ? 'reading' : 'normal';
   const footerState = state === 'waiting' ? card.kind === 'model' && online ? `${model?.total ?? 0} labeled` : 'Waiting' : triggered ? 'Review' : card.kind === 'model' ? 'Model ready' : 'Live';
   return <button id={`sensor-${card.key}`} type="button" className={`sensor-card ${state}${selected ? ' selected' : ''}`} onClick={() => onSelect(card.chart || card.key)} aria-pressed={selected}>
     <span className="card-top"><span className="sensor-icon">{card.icon}</span><span className={`state-dot ${state}`} /></span>
     <span className="eyebrow">{card.title}</span>
     <span className={`reading${gasAlert ? ' long-reading' : card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {Math.round(model.prediction.confidence * 100)}% leaf match</span>}{hasValue && card.unit && !gasAlert && <span className="unit"> {card.unit}</span>}</span>
     {card.kind === 'gas' && hasValue && <span className="gas-meter" aria-label={`Gas reading ${value} of 4095`}><span style={{ width: `${Math.min((value / 4095) * 100, 100)}%` }} /></span>}
-    {card.kind === 'model' && <span className="model-detail">{hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · auto-training' : 'Needs 20 labeled readings in at least 2 categories'}</span>}
+    {card.kind === 'model' && <span className="model-detail">{objectSignalActive ? hasValue ? `Object sensor active · learned tree path shown above · ${model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings`}` : 'Object sensor active · model still needs labeled examples' : hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · auto-training' : 'Needs 20 labeled readings in at least 2 categories'}</span>}
     <span className="card-foot"><span>{card.detail}</span><span className="card-state">{footerState}</span></span>
   </button>;
 }
@@ -308,7 +309,7 @@ export default function Dashboard() {
       <div className="incident-details" id="incident-details" hidden={!incidentsExpanded}>{!online ? <p>Waiting for live sensor readings.</p> : activeAlerts.length ? activeAlerts.map((alert) => <button className="incident-chip" type="button" key={alert.key} onClick={() => openSignal(alert.key)}>{alert.label}<span>View sensor ↗</span></button>) : <p>No active signals right now. This panel updates as new readings arrive.</p>}</div>
     </section>
     <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
-    <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
+    <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} liveSensors={sensors} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
     <section className="ml-panel">
       <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Live data and automatic training</h2><p>Live readings only become training examples while you capture them with the correct label.</p></div><div className="ml-statuses"><span className="model-status ready">AUTO-TRAIN ENABLED</span><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.capture?.active ? 'CAPTURE ACTIVE' : data.ml?.status === 'ready' ? `MODEL READY · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? `NEXT RETRAIN · ${data.ml.samplesUntilAutoTrain} TO GO` : `${data.ml?.trainableLabels?.length || 0}/2 LABELS READY`}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
       <div className={`ml-progress-card ${data.ml?.capture?.active ? 'capturing' : data.ml?.status === 'ready' ? 'trained' : ''}`} aria-live="polite"><span className="ml-progress-pulse" /><div><strong>{trainingProgress.title}</strong><p>{trainingProgress.detail}</p></div></div>
