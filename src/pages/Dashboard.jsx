@@ -23,6 +23,12 @@ const chartOptions = [
   ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['modelClass', 'ML class'], ['vibrationDetected', 'Vibration'],
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
 ];
+const aiGuideOptions = [
+  ['ml-basics', 'How the ML model works'],
+  ['adc-readings', 'What raw ADC means'],
+  ['training-data', 'How to collect safe training data'],
+  ['sensor-limits', 'Sensor limitations'],
+];
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 
 function SensorCard({ card, value, online, gasThreshold, model, onSelect, selected }) {
@@ -110,6 +116,10 @@ export default function Dashboard() {
   const [trainingLabel, setTrainingLabel] = useState('normal');
   const [trainingMessage, setTrainingMessage] = useState('');
   const [trainingBusy, setTrainingBusy] = useState(false);
+  const [aiTopic, setAiTopic] = useState(aiGuideOptions[0][0]);
+  const [aiExplanation, setAiExplanation] = useState('');
+  const [aiMessage, setAiMessage] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
   useEffect(() => {
     fetch('/api/status').then((response) => response.json()).then(setData).catch(() => setData({ ...initial, mqtt: 'unavailable' }));
     const events = new EventSource('/api/events');
@@ -141,6 +151,20 @@ export default function Dashboard() {
     try { await mlRequest(path, options); setTrainingMessage(success); }
     catch (error) { setTrainingMessage(error.message); }
     finally { setTrainingBusy(false); }
+  }
+  async function generateAiGuide() {
+    setAiBusy(true);
+    setAiMessage('');
+    setAiExplanation('');
+    try {
+      const response = await fetch('/api/ai/guide', { method: 'POST', headers: {
+        'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
+      }, body: JSON.stringify({ topic: aiTopic }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+      setAiExplanation(body.explanation);
+    } catch (error) { setAiMessage(error.message); }
+    finally { setAiBusy(false); }
   }
   async function exportTrainingData() {
     setTrainingBusy(true);
@@ -213,6 +237,7 @@ export default function Dashboard() {
     <section className="ml-panel">
       <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Live data and automatic training</h2><p>Only readings collected while you record a selected label are saved for training.</p></div><div className="ml-statuses"><span className="model-status ready">AUTO-TRAIN ON</span><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.status === 'ready' ? `TRAINED · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? 'NEW LABELS · AUTO-TRAINING' : 'NEEDS LABELED DATA'}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
       <p className="ml-import-note">The model auto-trains after it has 20 readings in at least two labels, then after every 20 additional labeled readings.</p>
+      {data.ml?.validation && <p className="ml-validation">{data.ml.validation.folds}-fold held-out check · {Math.round(data.ml.validation.accuracy * 100)}% accuracy · {Math.round(data.ml.validation.balancedAccuracy * 100)}% balanced accuracy across {data.ml.validation.samples} readings. This checks labeled sensor patterns only; it does not validate real-world hazard detection.</p>}
       {['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <p className="ml-demo-warning" role="status">This dataset contains synthetic readings. Model results are for demonstration only and do not describe current real-world hazards.</p>}
       {!data.ml?.adminEnabled ? <div className="ml-setup-note">Set <code>ML_ADMIN_TOKEN</code> in the Render service environment before using model training controls.</div> : <>
         <label className="ml-key">Training access key<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Enter the key set in Render" /></label>
@@ -227,6 +252,14 @@ export default function Dashboard() {
         {trainingMessage && <p className="ml-message" role="status">{trainingMessage}</p>}
       </>}
       <p className="ml-caution">Collect at least 20 real readings for any two categories to train; the model only predicts categories with enough examples. Its labels describe sensor patterns, not confirmed earthquake, storm or fire events. Never create smoke, fire, toxic gas, or unsafe conditions to collect examples.</p>
+    </section>
+    <section className="ai-guide-panel">
+      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">OPTIONAL · ON-DEMAND</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
+      <div className="ai-guide-controls"><label>Choose a topic<select value={aiTopic} onChange={(event) => setAiTopic(event.target.value)}>{aiGuideOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
+      {!data.aiEnabled ? <p className="ai-privacy-note">Add <code>OPENAI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
+      <p className="ai-privacy-note">Privacy: each manual request sends OpenAI only the fixed topic you select. The guide never receives live sensor readings, alerts, training data, or ML results. Requests are limited to 10 per day; OpenAI API usage may incur charges.</p>
+      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><p>{aiExplanation}</p></div>}
+      {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
     </section>
     <section className="threshold-panel">
       <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local setting · 0–1500 raw MQ-135 ADC</small></div></div>

@@ -20,6 +20,7 @@ The old unsupervised anomaly score has been removed. The replacement is a small,
 2. With the ESP32 online, select the condition you are actually observing and click **Record this condition**. Incoming readings are saved with that label until you stop capture. Repeat for each condition you can safely observe, including normal conditions. The model requires at least 20 readings in any two categories before it can train; it only predicts categories with enough examples.
    For **Sudden light flash**, only MQTT readings with `lightningDetected: true` count, so brief safe flashlight pulses can be collected as separate examples without labeling the surrounding normal readings as flashes.
 3. Once there are enough labels, the server trains automatically. It retrains after every 20 additional labeled readings. You can still click **Train model now** to train immediately. The page shows the class counts and the model’s decision path for a prediction. “Leaf match” is the share of labeled examples in that tree leaf with the chosen label; it is not a calibrated probability.
+   After training, the dashboard also reports stratified 5-fold held-out accuracy and balanced accuracy. These scores measure how well the tree classifies held-out labeled sensor patterns; they do not prove real-world disaster detection, and nearby readings can still be correlated.
 4. Use **Download labeled training data** to back it up. Import restores the labeled training data.
 
 Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
@@ -27,6 +28,12 @@ Labels describe sensor patterns only: a rain sensor trigger is not proof of a st
 When the ESP32 lightning flag is active, the ML card gives that direct signal priority and displays “Sudden light flash” with its source identified. Other classifications continue to come from the trained decision tree.
 
 The labeled dataset is stored locally on the server. Render's free service filesystem can reset after a restart or redeploy, so download the labeled data for backup or configure persistent storage before relying on long-term retention.
+
+## Optional AI field guide
+
+The dashboard can use the OpenAI Responses API for short, manually requested explanations of four fixed topics: the decision tree, raw ADC readings, safe training data collection, and sensor limitations. It does **not** receive live sensor readings, alerts, training examples, or model predictions. This is a general project guide, not live AI hazard analysis. Requests require the existing `ML_ADMIN_TOKEN`, are limited to 10 per server instance per day with a 30-second cooldown, and can incur OpenAI API charges.
+
+Set `OPENAI_API_KEY` as a private environment variable in Render (or in local `.env`). The optional `OPENAI_MODEL` defaults to `gpt-4o-mini`. Never place the API key in React code or commit it. The server sends only the fixed topic prompt, sets `store: false`, and limits response length. If you want AI to analyze live readings in the future, that would require separate explicit approval to send those readings to OpenAI.
 
 ## Telemetry contract
 

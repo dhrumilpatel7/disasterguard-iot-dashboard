@@ -79,13 +79,56 @@ function trainNode(samples, depth, classIds) {
     left: trainNode(leftSamples, depth + 1, classIds), right: trainNode(rightSamples, depth + 1, classIds) };
 }
 
+function classifyTree(root, features) {
+  let node = root;
+  while (node.feature !== undefined) node = features[node.feature] <= node.split ? node.left : node.right;
+  return node.label;
+}
+
+function crossValidate(samples, labels) {
+  const counts = Object.fromEntries(labels.map((label) => [label, samples.filter((sample) => sample.label === label).length]));
+  const folds = Math.min(5, ...Object.values(counts));
+  if (folds < 2) return null;
+
+  // Hold out contiguous blocks within each label. This keeps adjacent MQTT samples
+  // together so the score is less inflated by nearly identical neighboring readings.
+  const foldBySample = new Map();
+  for (const label of labels) {
+    const members = samples.filter((sample) => sample.label === label);
+    members.forEach((sample, index) => foldBySample.set(sample, Math.min(folds - 1, Math.floor(index * folds / members.length))));
+  }
+
+  const confusion = Object.fromEntries(labels.map((label) => [label, Object.fromEntries(labels.map((predicted) => [predicted, 0]))]));
+  let evaluated = 0;
+  let correct = 0;
+  for (let fold = 0; fold < folds; fold += 1) {
+    const training = samples.filter((sample) => foldBySample.get(sample) !== fold);
+    const heldOut = samples.filter((sample) => foldBySample.get(sample) === fold);
+    const root = trainNode(training, 0, labels);
+    for (const sample of heldOut) {
+      const predicted = classifyTree(root, sample.features);
+      confusion[sample.label][predicted] += 1;
+      evaluated += 1;
+      if (predicted === sample.label) correct += 1;
+    }
+  }
+  const recalls = labels.map((label) => confusion[label][label] / counts[label]);
+  return {
+    folds,
+    samples: evaluated,
+    accuracy: Number((correct / evaluated).toFixed(3)),
+    balancedAccuracy: Number((recalls.reduce((sum, recall) => sum + recall, 0) / recalls.length).toFixed(3)),
+  };
+}
+
 export function trainHazardTree(samples) {
   const trainingSamples = samples.map((sample) => ({
     ...sample,
     features: featuresFor(sample.sensors),
   }));
   const labels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => trainingSamples.some((sample) => sample.label === id));
-  return { root: trainNode(trainingSamples, 0, labels), labels, trainedAt: Date.now(), samples: trainingSamples.length };
+  return { root: trainNode(trainingSamples, 0, labels), labels, trainedAt: Date.now(), samples: trainingSamples.length,
+    validation: crossValidate(trainingSamples, labels) };
 }
 
 export function predictHazard(model, sensors) {

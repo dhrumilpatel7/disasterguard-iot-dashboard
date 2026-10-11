@@ -18,11 +18,22 @@ const topic = process.env.MQTT_TOPIC || 'disasterguard/esp32-01/telemetry';
 const staleAfterMs = 30_000;
 const historyLimit = 120;
 const autoTrainEverySamples = 20;
+const aiDailyLimit = 10;
+const aiMinimumIntervalMs = 30_000;
+const aiGuideTopics = Object.freeze({
+  'ml-basics': 'Explain in simple terms how a supervised decision tree learns from labeled sensor examples, what its validation accuracy means, and why it cannot prove a real disaster.',
+  'adc-readings': 'Explain what raw ADC readings mean for an ESP32 analog input and why an MQ-135 value is not a calibrated gas concentration and an LDR value is not lux.',
+  'training-data': 'Give safe, practical advice for collecting balanced labeled examples for a student sensor-pattern classifier. Do not recommend creating smoke, fire, toxic gas, strong vibration, or any unsafe condition.',
+  'sensor-limits': 'Explain the limits of simple MQ-135, rain, IR, SW-420, and LDR modules. Distinguish sensor triggers from confirmed fire, storm, earthquake, object identity, or lightning.',
+});
 let mqttState = process.env.MQTT_URL ? 'connecting' : 'not_configured';
 let latest = null;
 const history = [];
 const clients = new Set();
 let trainingWriteQueue = Promise.resolve();
+let aiWindowStartedAt = Date.now();
+let aiGuideRequestsUsed = 0;
+let aiLastGuideRequestAt = 0;
 
 app.disable('x-powered-by');
 app.use(helmet());
@@ -67,6 +78,7 @@ function mlSnapshot(sensors = latest?.sensors) {
     autoTrainEverySamples,
     datasetOrigin,
     trainedLabels: hazardModel?.labels ?? [],
+    validation: hazardModel?.validation ?? null,
     ...summary,
     capture: capture ? { active: true, label: capture.label, samplesAdded: capture.samplesAdded } : { active: false },
     prediction: sensors ? predictHazard(hazardModel, sensors) : null,
@@ -77,6 +89,7 @@ function snapshot() {
   const age = latest ? Date.now() - latest.receivedAt : null;
   return {
     mqtt: mqttState,
+    aiEnabled: Boolean(process.env.OPENAI_API_KEY),
     device: latest && age <= staleAfterMs ? 'online' : 'offline',
     deviceId: process.env.DEVICE_ID || 'esp32-01',
     lastSeen: latest?.receivedAt ?? null,
@@ -157,6 +170,48 @@ async function saveTrainingData(samples = labeledSamples, origin = datasetOrigin
 }
 
 app.get('/api/ml/summary', (_request, response) => response.json(mlSnapshot()));
+app.post('/api/ai/guide', requireMlAdmin, async (request, response) => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return response.status(503).json({ error: 'AI guide is not configured. Add OPENAI_API_KEY to the server environment.' });
+  const prompt = aiGuideTopics[request.body?.topic];
+  if (!prompt) return response.status(400).json({ error: 'Choose one of the listed AI guide topics.' });
+  const now = Date.now();
+  if (now - aiWindowStartedAt >= 24 * 60 * 60 * 1000) { aiWindowStartedAt = now; aiGuideRequestsUsed = 0; }
+  if (aiGuideRequestsUsed >= aiDailyLimit) return response.status(429).json({ error: 'Daily AI guide limit reached. Try again after the limit resets.' });
+  if (now - aiLastGuideRequestAt < aiMinimumIntervalMs) return response.status(429).json({ error: 'Please wait 30 seconds before requesting another AI explanation.' });
+
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  aiLastGuideRequestAt = now;
+  aiGuideRequestsUsed += 1;
+  try {
+    const aiResponse = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({
+        model,
+        store: false,
+        max_output_tokens: 220,
+        instructions: 'You are a friendly tutor for the DisasterGuard student IoT dashboard. Explain general concepts simply and briefly (at most 100 words). You do not have access to the dashboard, current readings, alerts, training data, or model output. Never claim to analyze live conditions or confirm a real emergency. Keep safety guidance conservative.',
+        input: prompt,
+      }),
+    });
+    const result = await aiResponse.json().catch(() => ({}));
+    if (!aiResponse.ok) {
+      const message = aiResponse.status === 401 ? 'OpenAI rejected the API key. Check OPENAI_API_KEY in Render.'
+        : aiResponse.status === 429 ? 'OpenAI rate limit or account quota reached. Check your API account usage.'
+          : 'OpenAI could not generate an explanation. Try again later.';
+      return response.status(aiResponse.status === 429 ? 429 : 502).json({ error: message });
+    }
+    const explanation = result.output_text || (result.output || []).flatMap((item) => item.content || [])
+      .filter((item) => item.type === 'output_text' && typeof item.text === 'string').map((item) => item.text).join('\n').trim();
+    if (!explanation) return response.status(502).json({ error: 'OpenAI returned an empty explanation. Please try again.' });
+    return response.json({ explanation, generatedAt: now, topic: request.body.topic });
+  } catch (error) {
+    console.error('AI guide request failed:', error.name || 'unknown error');
+    return response.status(502).json({ error: error.name === 'TimeoutError' ? 'The AI explanation timed out. Try again.' : 'Could not reach OpenAI. Try again later.' });
+  }
+});
 app.post('/api/ml/capture', requireMlAdmin, (request, response) => {
   const { label } = request.body || {};
   if (!HAZARD_CLASSES.some((item) => item.id === label)) return response.status(400).json({ error: 'Choose a listed label before capturing readings.' });

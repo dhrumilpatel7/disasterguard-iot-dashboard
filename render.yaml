@@ -14,3 +14,7 @@ services:
         value: esp32-01
       - key: ML_ADMIN_TOKEN
         generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
