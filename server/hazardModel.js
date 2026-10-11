@@ -96,6 +96,13 @@ export function predictHazard(model, sensors) {
       confidence: null, leafSamples: 0, source: 'sensor_trigger',
       reasons: ['ESP32 lightningDetected signal is active'] };
   }
+  // Show an active object trigger even before a learned tree exists. This is a
+  // direct sensor status, not a claim that the object is a hazard.
+  if (sensors.objectDetected === true) {
+    return { label: 'Object sensor trigger', classId: 'object', warning: false,
+      confidence: null, leafSamples: 0, source: 'sensor_trigger',
+      reasons: ['ESP32 objectDetected signal is active'] };
+  }
   if (!model) return null;
   const features = featuresFor(sensors);
   let node = model.root;
