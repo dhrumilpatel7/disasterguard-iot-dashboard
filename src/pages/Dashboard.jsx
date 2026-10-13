@@ -32,7 +32,7 @@ const chartOptions = [
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
 ];
 const navigationSections = [
-  ['dashboard', 'Dashboard'], ['live-data', 'Live data'], ['live-graph', 'Live graph'], ['ai-guide', 'AI'], ['ml-model', 'ML'], ['sdg-mapping', "SDG's mapping"],
+  ['dashboard', 'Dashboard'], ['live-data', 'Live data'], ['live-graph', 'Live graph'], ['ai-guide', 'AI field guide'], ['ml-model', 'ML model'], ['sdg-mapping', 'SDG mapping'],
 ];
 const sdgGoals = [
   { id: 9, title: 'Industry, Innovation and Infrastructure', color: '#f36d4f', summary: 'Connects to the project’s use of low-cost connected sensors and a web dashboard for monitoring.', detail: 'DisasterGuard is a small educational IoT prototype. It demonstrates sensor telemetry and remote visualization; it does not measure infrastructure resilience or prove real-world impact.' },
@@ -111,6 +111,19 @@ function GuideMarkdown({ text }) {
     }
     return <p key={`paragraph-${blockIndex}`}>{renderGuideInline(lines.join(' '), `paragraph-${blockIndex}`)}</p>;
   });
+}
+
+function NavGlyph({ name }) {
+  const common = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+  const shapes = {
+    dashboard: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
+    'live-data': <><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></>,
+    'live-graph': <><path d="M3 18h18" /><path d="m4 15 5-5 4 3 7-8" /><path d="M16 5h4v4" /></>,
+    ai: <><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></>,
+    ml: <><path d="M5 19V9m7 10V5m7 14v-7" /><path d="M3 19h18" /></>,
+    sdg: <><path d="M20 4c-8 0-14 3-14 9a6 6 0 0 0 6 6c6 0 8-7 8-15Z" /><path d="M4 21c3-5 7-8 12-11" /></>,
+  };
+  return <svg {...common}>{shapes[name]}</svg>;
 }
 
 function SensorCard({ card, value, online, gasThreshold, model, liveSensors, onSelect, selected }) {
@@ -194,6 +207,7 @@ export default function Dashboard() {
   const [theme, setTheme] = useState(() => localStorage.getItem('dg-theme') || 'dark');
   const [metric, setMetric] = useState('gasRaw');
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedSdg, setExpandedSdg] = useState(null);
   const [incidentsExpanded, setIncidentsExpanded] = useState(false);
   const [gasThreshold, setGasThreshold] = useState(savedGasThreshold);
@@ -313,12 +327,23 @@ export default function Dashboard() {
   }
   const mqttLabel = ({ connected: 'Secure broker connected', connecting: 'Connecting to broker', disconnected: 'Broker disconnected', not_configured: 'Broker not configured', invalid_config: 'Secure broker URL required', unavailable: 'Dashboard server unavailable' })[data.mqtt] || 'Broker status unknown';
   const trainingProgress = getTrainingProgress(data.ml, online);
-  return <main className={`shell ${theme}`}>
-    <header className="topbar">
-      <a className="brand" href="#dashboard" aria-label="DisasterGuard home"><span className="brand-mark">D<span>·</span></span><span>DISASTER<span className="brand-light">GUARD</span><small>INCIDENT COMMAND</small></span></a>
-      <div className="top-actions"><div className="top-meta"><span className="secure-mark">⌑</span> REMOTE OPERATIONS <span className="top-divider" /> {data.deviceId?.toUpperCase() || 'SENSOR NODE 01'}</div><button className="theme-toggle" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}><span>{theme === 'dark' ? '☼' : '☾'}</span><span className="toggle-label">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button></div>
-    </header>
-    <nav className="section-nav" aria-label="Dashboard sections">{navigationSections.map(([id, label]) => <a key={id} href={`#${id}`} className={activeSection === id ? 'active' : ''} aria-current={activeSection === id ? 'location' : undefined} onClick={() => setActiveSection(id)}>{label}</a>)}</nav>
+  return <div className={`app-shell ${theme}`}>
+    <aside className={`app-sidebar${sidebarOpen ? ' open' : ''}`} aria-label="Main navigation">
+      <a className="brand" href="#dashboard" aria-label="DisasterGuard dashboard"><span className="brand-mark">D<span>·</span></span><span>DISASTER<span className="brand-light">GUARD</span><small>INCIDENT COMMAND</small></span></a>
+      <nav className="side-nav">
+        <div className="nav-group"><span className="nav-label">Overview</span><a href="#dashboard" className={activeSection === 'dashboard' ? 'active' : ''} aria-current={activeSection === 'dashboard' ? 'location' : undefined} onClick={() => { setActiveSection('dashboard'); setSidebarOpen(false); }}><NavGlyph name="dashboard" />Dashboard</a></div>
+        <div className="nav-group"><span className="nav-label">Monitoring</span><a href="#live-data" className={activeSection === 'live-data' ? 'active' : ''} aria-current={activeSection === 'live-data' ? 'location' : undefined} onClick={() => { setActiveSection('live-data'); setSidebarOpen(false); }}><NavGlyph name="live-data" />Live data</a><a href="#live-graph" className={activeSection === 'live-graph' ? 'active' : ''} aria-current={activeSection === 'live-graph' ? 'location' : undefined} onClick={() => { setActiveSection('live-graph'); setSidebarOpen(false); }}><NavGlyph name="live-graph" />Live graph</a></div>
+        <div className="nav-group"><span className="nav-label">Intelligence</span><a href="#ai-guide" className={activeSection === 'ai-guide' ? 'active' : ''} aria-current={activeSection === 'ai-guide' ? 'location' : undefined} onClick={() => { setActiveSection('ai-guide'); setSidebarOpen(false); }}><NavGlyph name="ai" />AI field guide</a><a href="#ml-model" className={activeSection === 'ml-model' ? 'active' : ''} aria-current={activeSection === 'ml-model' ? 'location' : undefined} onClick={() => { setActiveSection('ml-model'); setSidebarOpen(false); }}><NavGlyph name="ml" />ML model</a></div>
+        <div className="nav-group"><span className="nav-label">Sustainability</span><a href="#sdg-mapping" className={activeSection === 'sdg-mapping' ? 'active' : ''} aria-current={activeSection === 'sdg-mapping' ? 'location' : undefined} onClick={() => { setActiveSection('sdg-mapping'); setSidebarOpen(false); }}><NavGlyph name="sdg" />SDG mapping<span className="nav-item-badge">2030</span></a></div>
+      </nav>
+      <div className="sidebar-foot"><div className="sidebar-foot-meta">ESP32 · FIELD UNIT 01</div><div className="sidebar-foot-sub">Live incident monitoring</div><button className="theme-toggle sidebar-theme-toggle" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}><span>{theme === 'dark' ? '☼' : '☾'}</span><span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button></div>
+    </aside>
+    {sidebarOpen && <button className="sidebar-scrim" type="button" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
+    <main className={`shell ${theme}`}>
+      <header className="topbar">
+        <div className="topbar-leading"><button className="menu-toggle" type="button" aria-label={sidebarOpen ? 'Close menu' : 'Open menu'} aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((open) => !open)}><span /><span /><span /></button><span className="topbar-title">DisasterGuard · Incident command</span></div>
+        <div className="top-actions"><div className="top-meta"><span className="secure-mark">⌑</span> REMOTE OPERATIONS <span className="top-divider" /> {data.deviceId?.toUpperCase() || 'SENSOR NODE 01'}</div></div>
+      </header>
     <section className="hero" id="dashboard">
       <div><p className="overline"><span className="live-indicator" /> DISASTERGUARD / COMMAND CENTER</p><h1>Situational awareness.<br /><em>Every signal matters.</em></h1><p className="hero-copy">Remote field monitoring for environmental hazards and incident response.</p></div>
       <div className={`connection ${online ? 'online' : ''}`}><span className="connection-dot" /><div><strong>{online ? 'FIELD UNIT ONLINE' : 'FIELD UNIT OFFLINE'}</strong><small>{mqttLabel}</small></div><span className="connection-chevron">↗</span></div>
@@ -380,5 +405,6 @@ export default function Dashboard() {
       <p className="sdg-disclaimer">These are educational project connections only. DisasterGuard is a prototype; this mapping is not UN endorsement, SDG certification, or evidence of measured impact.</p>
     </section>
     <footer><span>DISASTERGUARD <span className="footer-dot">·</span> FIELD INCIDENT MONITORING</span><span>MQTT <span className="footer-status">{data.mqtt === 'connected' ? 'CONNECTED' : 'NOT CONNECTED'}</span></span></footer>
-  </main>;
+    </main>
+  </div>;
 }
