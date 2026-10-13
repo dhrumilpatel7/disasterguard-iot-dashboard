@@ -31,6 +31,14 @@ const chartOptions = [
   ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['modelClass', 'ML class'], ['vibrationDetected', 'Vibration'],
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
 ];
+const navigationSections = [
+  ['dashboard', 'Dashboard'], ['live-data', 'Live data'], ['live-graph', 'Live graph'], ['ai-guide', 'AI'], ['ml-model', 'ML'], ['sdg-mapping', "SDG's mapping"],
+];
+const sdgGoals = [
+  { id: 9, title: 'Industry, Innovation and Infrastructure', color: '#f36d4f', summary: 'Connects to the project’s use of low-cost connected sensors and a web dashboard for monitoring.', detail: 'DisasterGuard is a small educational IoT prototype. It demonstrates sensor telemetry and remote visualization; it does not measure infrastructure resilience or prove real-world impact.' },
+  { id: 11, title: 'Sustainable Cities and Communities', color: '#f5a623', summary: 'Relates to exploring how local environmental signals could be made visible to a community response team.', detail: 'The dashboard can help demonstrate situational awareness using a single ESP32 unit. It is not an official city warning system and has not been validated for emergency response.' },
+  { id: 13, title: 'Climate Action', color: '#4c9f38', summary: 'Supports learning about environmental monitoring and climate-related data through connected sensors.', detail: 'The current sensors provide limited local readings, not climate science or long-term climate measurements. This is a conceptual SDG connection, not a certified SDG contribution or measured outcome.' },
+];
 const aiGuideOptions = [
   ['ml-basics', 'How the ML model works'],
   ['ml-accuracy', 'Understanding model accuracy'],
@@ -185,6 +193,8 @@ export default function Dashboard() {
   const [data, setData] = useState(initial);
   const [theme, setTheme] = useState(() => localStorage.getItem('dg-theme') || 'dark');
   const [metric, setMetric] = useState('gasRaw');
+  const [activeSection, setActiveSection] = useState('dashboard');
+  const [expandedSdg, setExpandedSdg] = useState(null);
   const [incidentsExpanded, setIncidentsExpanded] = useState(false);
   const [gasThreshold, setGasThreshold] = useState(savedGasThreshold);
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('dg-ml-admin-token') || '');
@@ -195,6 +205,16 @@ export default function Dashboard() {
   const [aiExplanation, setAiExplanation] = useState('');
   const [aiMessage, setAiMessage] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  useEffect(() => {
+    const targets = navigationSections.map(([id]) => document.getElementById(id)).filter(Boolean);
+    if (!targets.length) return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (visible) setActiveSection(visible.target.id);
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: [0, 0.15, 0.4, 0.7] });
+    targets.forEach((target) => observer.observe(target));
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     fetch('/api/status').then((response) => response.json()).then(setData).catch(() => setData({ ...initial, mqtt: 'unavailable' }));
     const events = new EventSource('/api/events');
@@ -295,10 +315,11 @@ export default function Dashboard() {
   const trainingProgress = getTrainingProgress(data.ml, online);
   return <main className={`shell ${theme}`}>
     <header className="topbar">
-      <a className="brand" href="#top" aria-label="DisasterGuard home"><span className="brand-mark">D<span>·</span></span><span>DISASTER<span className="brand-light">GUARD</span><small>INCIDENT COMMAND</small></span></a>
+      <a className="brand" href="#dashboard" aria-label="DisasterGuard home"><span className="brand-mark">D<span>·</span></span><span>DISASTER<span className="brand-light">GUARD</span><small>INCIDENT COMMAND</small></span></a>
       <div className="top-actions"><div className="top-meta"><span className="secure-mark">⌑</span> REMOTE OPERATIONS <span className="top-divider" /> {data.deviceId?.toUpperCase() || 'SENSOR NODE 01'}</div><button className="theme-toggle" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}><span>{theme === 'dark' ? '☼' : '☾'}</span><span className="toggle-label">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button></div>
     </header>
-    <section className="hero" id="top">
+    <nav className="section-nav" aria-label="Dashboard sections">{navigationSections.map(([id, label]) => <a key={id} href={`#${id}`} className={activeSection === id ? 'active' : ''} aria-current={activeSection === id ? 'location' : undefined} onClick={() => setActiveSection(id)}>{label}</a>)}</nav>
+    <section className="hero" id="dashboard">
       <div><p className="overline"><span className="live-indicator" /> DISASTERGUARD / COMMAND CENTER</p><h1>Situational awareness.<br /><em>Every signal matters.</em></h1><p className="hero-copy">Remote field monitoring for environmental hazards and incident response.</p></div>
       <div className={`connection ${online ? 'online' : ''}`}><span className="connection-dot" /><div><strong>{online ? 'FIELD UNIT ONLINE' : 'FIELD UNIT OFFLINE'}</strong><small>{mqttLabel}</small></div><span className="connection-chevron">↗</span></div>
     </section>
@@ -308,9 +329,23 @@ export default function Dashboard() {
       <button className="incident-count" type="button" aria-expanded={incidentsExpanded} aria-controls="incident-details" onClick={() => setIncidentsExpanded((expanded) => !expanded)} title={incidentsExpanded ? 'Hide signal details' : 'Show all active signals'}><strong>{online ? String(activeAlerts.length).padStart(2, '0') : '—'}</strong><span>{online ? 'SIGNALS' : 'STATUS'}</span><span className="incident-toggle" aria-hidden="true">{incidentsExpanded ? '⌃' : '⌄'}</span></button>
       <div className="incident-details" id="incident-details" hidden={!incidentsExpanded}>{!online ? <p>Waiting for live sensor readings.</p> : activeAlerts.length ? activeAlerts.map((alert) => <button className="incident-chip" type="button" key={alert.key} onClick={() => openSignal(alert.key)}>{alert.label}<span>View sensor ↗</span></button>) : <p>No active signals right now. This panel updates as new readings arrive.</p>}</div>
     </section>
-    <section className="section-head"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Incident signals</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
+    <section className="section-head" id="live-data"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Live sensor data</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
     <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} liveSensors={sensors} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
-    <section className="ml-panel">
+    <section className="trend-panel" id="live-graph">
+      <div className="trend-heading"><div><p className="overline">FIELD TELEMETRY / LAST {data.history?.length || 0} SAMPLES</p><h2>Signal history</h2></div><span className="chart-live"><i /> LIVE STREAM</span></div>
+      <div className="metric-tabs" role="group" aria-label="Choose chart sensor">{chartOptions.map(([key, label]) => <button key={key} className={metric === key ? 'selected' : ''} aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}</div>
+      <TrendChart history={data.history || []} metric={metric} />
+      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
+    </section>
+    <section className="ai-guide-panel" id="ai-guide">
+      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
+      <div className="ai-guide-controls"><label>Choose a topic<select value={aiTopic} onChange={(event) => setAiTopic(event.target.value)}>{aiGuideOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
+      {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
+      <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only the fixed topic you select. The guide never receives live sensor readings, alerts, training data, or ML results. The app limits requests to 10 per day; Google applies its own free-tier quotas and may use free-tier prompts to improve its products.</p>
+      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
+      {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
+    </section>
+    <section className="ml-panel" id="ml-model">
       <div className="ml-panel-heading"><div><p className="overline">SUPERVISED MODEL / TRAINING</p><h2>Live data and automatic training</h2><p>Live readings only become training examples while you capture them with the correct label.</p></div><div className="ml-statuses"><span className="model-status ready">AUTO-TRAIN ENABLED</span><span className={`model-status ${data.ml?.status === 'ready' ? 'ready' : ''}`}>{data.ml?.capture?.active ? 'CAPTURE ACTIVE' : data.ml?.status === 'ready' ? `MODEL READY · ${data.ml.trainedLabels?.length || 0}/6` : data.ml?.status === 'needs_retraining' ? `NEXT RETRAIN · ${data.ml.samplesUntilAutoTrain} TO GO` : `${data.ml?.trainableLabels?.length || 0}/2 LABELS READY`}</span>{['synthetic_demo', 'mixed'].includes(data.ml?.datasetOrigin) && <span className="model-status demo">DEMO DATA</span>}</div></div>
       <div className={`ml-progress-card ${data.ml?.capture?.active ? 'capturing' : data.ml?.status === 'ready' ? 'trained' : ''}`} aria-live="polite"><span className="ml-progress-pulse" /><div><strong>{trainingProgress.title}</strong><p>{trainingProgress.detail}</p></div></div>
       <p className="ml-import-note">First training starts automatically after 20 labeled readings in each of 2 categories. A trained model then refreshes after every 20 additional labeled readings. Unlabeled telemetry is never guessed or silently added to the training set.</p>
@@ -330,25 +365,19 @@ export default function Dashboard() {
       </>}
       <p className="ml-caution">Collect at least 20 real readings for any two categories to train; the model only predicts categories with enough examples. Its labels describe sensor patterns, not confirmed earthquake, storm or fire events. Never create smoke, fire, toxic gas, or unsafe conditions to collect examples.</p>
     </section>
-    <section className="ai-guide-panel">
-      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
-      <div className="ai-guide-controls"><label>Choose a topic<select value={aiTopic} onChange={(event) => setAiTopic(event.target.value)}>{aiGuideOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
-      {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
-      <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only the fixed topic you select. The guide never receives live sensor readings, alerts, training data, or ML results. The app limits requests to 10 per day; Google applies its own free-tier quotas and may use free-tier prompts to improve its products.</p>
-      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
-      {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
-    </section>
     <section className="threshold-panel">
       <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local setting · 0–1500 raw MQ-135 ADC</small></div></div>
       <input aria-label="Gas alert threshold" type="range" min={GAS_ALERT_MIN} max={GAS_ALERT_MAX} step="10" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} />
       <output>{gasThreshold} <span>ADC</span></output>
     </section>
     <p className="sensor-note">Direct sensor alerts remain independent of the ML model. The MQ-135 responds to a broad mix of gases and smoke; it does not identify fire or a specific gas.</p>
-    <section className="trend-panel">
-      <div className="trend-heading"><div><p className="overline">FIELD TELEMETRY / LAST {data.history?.length || 0} SAMPLES</p><h2>Signal history</h2></div><span className="chart-live"><i /> LIVE STREAM</span></div>
-      <div className="metric-tabs" role="group" aria-label="Choose chart sensor">{chartOptions.map(([key, label]) => <button key={key} className={metric === key ? 'selected' : ''} aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}</div>
-      <TrendChart history={data.history || []} metric={metric} />
-      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
+    <section className="sdg-panel" id="sdg-mapping">
+      <div className="sdg-heading"><div><p className="overline">PROJECT ALIGNMENT / UNITED NATIONS SDGS</p><h2>SDG mapping</h2><p>Explore the project’s educational links to three Sustainable Development Goals.</p></div><span className="sdg-count">03 GOALS</span></div>
+      <div className="sdg-grid">{sdgGoals.map((goal) => { const expanded = expandedSdg === goal.id; return <article className={`sdg-card${expanded ? ' expanded' : ''}`} key={goal.id} style={{ '--sdg-color': goal.color }}>
+        <button className="sdg-card-toggle" type="button" aria-expanded={expanded} onClick={() => setExpandedSdg(expanded ? null : goal.id)}><span className="sdg-number">{String(goal.id).padStart(2, '0')}</span><span className="sdg-copy"><strong>SDG {goal.id} · {goal.title}</strong><small>{goal.summary}</small></span><span className="sdg-chevron" aria-hidden="true">{expanded ? '−' : '+'}</span></button>
+        {expanded && <div className="sdg-detail"><p>{goal.detail}</p></div>}
+      </article>; })}</div>
+      <p className="sdg-disclaimer">These are educational project connections only. DisasterGuard is a prototype; this mapping is not UN endorsement, SDG certification, or evidence of measured impact.</p>
     </section>
     <footer><span>DISASTERGUARD <span className="footer-dot">·</span> FIELD INCIDENT MONITORING</span><span>MQTT <span className="footer-status">{data.mqtt === 'connected' ? 'CONNECTED' : 'NOT CONNECTED'}</span></span></footer>
   </main>;
