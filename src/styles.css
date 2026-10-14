@@ -243,6 +243,7 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .ai-privacy-note code{font:10px 'DM Mono',monospace;color:var(--orange)}
 .ai-explanation{margin-top:14px;border:1px solid #286276;border-radius:7px;background:#101f2b;padding:12px;color:var(--text);font-size:12px;line-height:1.7}
 .ai-explanation strong{color:var(--cyan)}
+.ai-context-sources{display:block;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);color:var(--muted);font:9px/1.5 'DM Mono',monospace;overflow-wrap:anywhere}
 .ai-markdown{margin-top:7px;overflow-wrap:anywhere}
 .ai-markdown p{margin:0 0 9px}
 .ai-markdown p:last-child{margin-bottom:0}
