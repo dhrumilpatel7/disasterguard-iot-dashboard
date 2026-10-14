@@ -48,6 +48,7 @@ uint32_t lastPublishAt = 0;
 uint32_t lastSampleAt = 0;
 uint32_t lightningDetectedAt = 0;
 uint32_t lastLightningTriggerAt = 0;
+uint32_t lastLightDebugAt = 0;
 uint8_t pendingAlertFlags = 0;
 bool lightBaselineReady = false;
 int32_t lightBaselineQ8 = 0;
@@ -181,6 +182,11 @@ uint8_t sampleSensors(uint32_t now) {
 
   const int lightBaseline = static_cast<int>(lightBaselineQ8 >> 8);
   const int lightDelta = lightRaw - lightBaseline;
+  if (now - lastLightDebugAt >= 1000) {
+    lastLightDebugAt = now;
+    Serial.printf("LDR ADC=%d baseline=%d delta=%d threshold=±%d\n",
+                  lightRaw, lightBaseline, lightDelta, LIGHTNING_SPIKE_THRESHOLD);
+  }
   const bool lightSpike = lightDelta >= LIGHTNING_SPIKE_THRESHOLD ||
                           lightDelta <= -LIGHTNING_SPIKE_THRESHOLD;
   if (lightSpike && !lightningDetected &&

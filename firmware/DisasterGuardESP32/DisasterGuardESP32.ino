@@ -19,8 +19,9 @@ DHT dhtSensor(DHT11_PIN, DHT11_TYPE);
 // Match the polarity verified in the standalone sensor performance sketch.
 constexpr bool RAIN_ACTIVE_LOW = true;
 constexpr bool IR_ACTIVE_LOW = true;
-constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
+constexpr int LIGHTNING_SPIKE_THRESHOLD = 250;
 constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
+constexpr uint32_t LIGHTNING_REFRACTORY_MS = 1500;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
 constexpr uint32_t DHT11_READ_INTERVAL_MS = 2500;
 constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
@@ -46,11 +47,13 @@ PubSubClient mqttClient(tlsClient);
 uint32_t lastPublishAt = 0;
 uint32_t lastSampleAt = 0;
 uint32_t lightningDetectedAt = 0;
+uint32_t lastLightningTriggerAt = 0;
+uint32_t lastLightDebugAt = 0;
 uint8_t pendingAlertFlags = 0;
 bool lightBaselineReady = false;
+int32_t lightBaselineQ8 = 0;
 int gasRaw = 0;
 int lightRaw = 0;
-int previousLight = 0;
 float temperatureC = NAN;
 float humidityPct = NAN;
 uint32_t lastDhtReadAt = 0;
@@ -123,7 +126,7 @@ void connectMqtt() {
       Serial.println(" connected");
     } else {
       Serial.printf(" failed (state %d); retrying in 3 seconds\n", mqttClient.state());
-      delay(1000);
+      delay(3000);
     }
   }
 }
@@ -170,21 +173,36 @@ uint8_t sampleSensors(uint32_t now) {
     }
   }
 
-  // Establish the first live sample as the baseline so time spent connecting
-  // to Wi-Fi cannot be mistaken for a sudden flash at boot.
+  // Track ambient light with a slow baseline. A flash may move the ADC either
+  // direction depending on the LDR divider wiring, so check both polarities.
   if (!lightBaselineReady) {
-    previousLight = lightRaw;
+    lightBaselineQ8 = static_cast<int32_t>(lightRaw) << 8;
     lightBaselineReady = true;
   }
 
-  // A sudden drop in the LDR ADC value is treated as a bright flash.
-  if (lightBaselineReady && previousLight - lightRaw >= LIGHTNING_SPIKE_THRESHOLD) {
+  const int lightBaseline = static_cast<int>(lightBaselineQ8 >> 8);
+  const int lightDelta = lightRaw - lightBaseline;
+  if (now - lastLightDebugAt >= 1000) {
+    lastLightDebugAt = now;
+    Serial.printf("LDR ADC=%d baseline=%d delta=%d threshold=±%d\n",
+                  lightRaw, lightBaseline, lightDelta, LIGHTNING_SPIKE_THRESHOLD);
+  }
+  const bool lightSpike = lightDelta >= LIGHTNING_SPIKE_THRESHOLD ||
+                          lightDelta <= -LIGHTNING_SPIKE_THRESHOLD;
+  if (lightSpike && !lightningDetected &&
+      (lastLightningTriggerAt == 0 || now - lastLightningTriggerAt >= LIGHTNING_REFRACTORY_MS)) {
     lightningDetected = true;
     lightningDetectedAt = now;
+    lastLightningTriggerAt = now;
+      Serial.printf("LDR flash spike: raw=%d baseline=%d delta=%d ADC\n",
+                  lightRaw, lightBaseline, lightDelta);
   } else if (lightningDetected && now - lightningDetectedAt >= LIGHTNING_DISPLAY_MS) {
     lightningDetected = false;
   }
-  previousLight = lightRaw;
+
+  // A 1/16 update per 10 ms sample follows ambient changes over a few hundred
+  // milliseconds while leaving brief flashes visible as deviations.
+  lightBaselineQ8 += ((static_cast<int32_t>(lightRaw) << 8) - lightBaselineQ8) / 16;
 
   // Remember starts until a publish succeeds. This preserves brief pulses
   // that occur during the one-second urgent-publish rate limit.
