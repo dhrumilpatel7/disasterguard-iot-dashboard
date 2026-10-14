@@ -22,7 +22,7 @@ function savedEnvironmentThreshold(key, fallback) {
 const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [], ml: { status: 'collecting', total: 0, counts: {}, classes: [], prediction: null } };
 const cards = [
   { key: 'gasRaw', title: 'Fire / gas watch', icon: '♨', unit: 'ADC / 4095', detail: 'MQ-135 · GPIO 32', kind: 'gas' },
-  { key: 'vibrationDetected', title: 'Vibration watch', icon: '〰', detail: 'SW-420 debounced output · GPIO 25', kind: 'boolean', active: 'Vibration detected · inspect site', clear: 'No vibration detected', chart: 'vibrationDetected' },
+  { key: 'vibrationDetected', title: 'Vibration watch', icon: '〰', detail: 'SW-420 debounced output · GPIO 25', kind: 'boolean', active: 'Vibration detected · Possible Earthquake', clear: 'No vibration detected', chart: 'vibrationDetected' },
   { key: 'rainDetected', title: 'Storm watch', icon: '⛈', detail: 'Rain sensor · GPIO 35', kind: 'boolean', active: 'Storm warning · rain detected', clear: 'No rain detected', chart: 'rainDetected' },
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR ±500 ADC flash spike · GPIO 34', kind: 'boolean', active: 'Lightning Detected', clear: 'No Lightning Detected', chart: 'lightningDetected' },
