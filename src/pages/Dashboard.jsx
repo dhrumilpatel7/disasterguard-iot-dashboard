@@ -3,11 +3,21 @@ import { useEffect, useMemo, useState } from 'react';
 const GAS_ALERT_MIN = 0;
 const GAS_ALERT_MAX = 1500;
 const GAS_ALERT_DEFAULT = 1000;
+const ENVIRONMENT_THRESHOLD_MIN = 0;
+const ENVIRONMENT_THRESHOLD_MAX = 100;
+const TEMPERATURE_ALERT_DEFAULT = 35;
+const HUMIDITY_ALERT_DEFAULT = 70;
 function savedGasThreshold() {
   const saved = localStorage.getItem('dg-gas-threshold');
   if (saved === null) return GAS_ALERT_DEFAULT;
   const value = Number(saved);
   return Number.isFinite(value) ? Math.min(GAS_ALERT_MAX, Math.max(GAS_ALERT_MIN, value)) : GAS_ALERT_DEFAULT;
+}
+function savedEnvironmentThreshold(key, fallback) {
+  const saved = localStorage.getItem(key);
+  if (saved === null) return fallback;
+  const value = Number(saved);
+  return Number.isFinite(value) ? Math.min(ENVIRONMENT_THRESHOLD_MAX, Math.max(ENVIRONMENT_THRESHOLD_MIN, value)) : fallback;
 }
 const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [], ml: { status: 'collecting', total: 0, counts: {}, classes: [], prediction: null } };
 const cards = [
@@ -148,13 +158,16 @@ function NavGlyph({ name }) {
   return <svg {...common}>{shapes[name]}</svg>;
 }
 
-function SensorCard({ card, value, online, gasThreshold, model, liveSensors, onSelect, selected }) {
+function SensorCard({ card, value, online, gasThreshold, temperatureThreshold, humidityThreshold, model, liveSensors, onSelect, selected }) {
   const modelReady = card.kind === 'model' && Boolean(model?.prediction);
   const hasValue = online && (card.kind === 'model' ? Boolean(modelReady) : value !== undefined && value !== null);
   const gasAlert = card.kind === 'gas' && hasValue && value >= gasThreshold;
+  const temperatureAlert = card.key === 'temperatureC' && hasValue && value >= temperatureThreshold;
+  const humidityAlert = card.key === 'humidityPct' && hasValue && value >= humidityThreshold;
+  const valueAlert = gasAlert || temperatureAlert || humidityAlert;
   const objectSignalActive = card.kind === 'model' && online && liveSensors?.objectDetected === true;
   const modelAlert = card.kind === 'model' && hasValue && model.prediction.source === 'decision_tree' && model.prediction.warning && model.prediction.confidence >= 0.6;
-  const triggered = card.kind === 'model' ? objectSignalActive || modelAlert : hasValue && (card.kind === 'gas' ? gasAlert : card.kind === 'boolean' && value);
+  const triggered = card.kind === 'model' ? objectSignalActive || modelAlert : hasValue && (card.kind === 'boolean' ? value : valueAlert);
   const display = !hasValue ? card.kind === 'model' && online ? model?.status === 'needs_retraining' ? 'Retrain after new labels' : 'Collect labeled readings' : 'Awaiting data'
     : card.kind === 'gas' ? value.toLocaleString()
       : card.kind === 'model' ? learnedPatternLabels[model.prediction.classId] || 'Unmapped learned pattern'
@@ -166,7 +179,9 @@ function SensorCard({ card, value, online, gasThreshold, model, liveSensors, onS
     <span className="eyebrow">{card.title}</span>
     <span className={`reading${card.kind === 'model' ? ' model-reading' : ''}`}>{display}{card.kind === 'model' && hasValue && <span className="unit"> · {Math.round(model.prediction.confidence * 100)}% leaf match</span>}{hasValue && card.unit && <span className="unit"> {card.unit}</span>}</span>
     {card.kind === 'gas' && hasValue && <span className="gas-meter" aria-label={`Gas reading ${value} of 4095`}><span style={{ width: `${Math.min((value / 4095) * 100, 100)}%` }} /></span>}
-    {card.kind === 'gas' && gasAlert && <span className="gas-alert-label">ALERT · reading {value} ADC meets/exceeds threshold {gasThreshold}</span>}
+    {gasAlert && <span className="gas-alert-label">ALERT · {value} ADC meets/exceeds {gasThreshold}</span>}
+    {temperatureAlert && <span className="gas-alert-label">ALERT · {value} °C meets/exceeds {temperatureThreshold} °C</span>}
+    {humidityAlert && <span className="gas-alert-label">ALERT · {value}% RH meets/exceeds {humidityThreshold}% RH</span>}
     {card.kind === 'model' && <span className="model-detail">{objectSignalActive ? hasValue ? `Object sensor active · learned tree path shown above · ${model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings`}` : 'Object sensor active · model still needs labeled examples' : hasValue ? model.prediction.reasons.join(' · ') || `${model.prediction.leafSamples} similar labeled readings` : model?.status === 'needs_retraining' ? 'New labels added · auto-training' : 'Needs 20 labeled readings in at least 2 categories'}</span>}
     <span className="card-foot"><span>{card.detail}</span><span className="card-state">{footerState}</span></span>
   </button>;
@@ -236,6 +251,8 @@ export default function Dashboard() {
   const [expandedSdg, setExpandedSdg] = useState(null);
   const [incidentsExpanded, setIncidentsExpanded] = useState(false);
   const [gasThreshold, setGasThreshold] = useState(savedGasThreshold);
+  const [temperatureThreshold, setTemperatureThreshold] = useState(() => savedEnvironmentThreshold('dg-temperature-threshold', TEMPERATURE_ALERT_DEFAULT));
+  const [humidityThreshold, setHumidityThreshold] = useState(() => savedEnvironmentThreshold('dg-humidity-threshold', HUMIDITY_ALERT_DEFAULT));
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('dg-ml-admin-token') || '');
   const [trainingLabel, setTrainingLabel] = useState('normal');
   const [trainingMessage, setTrainingMessage] = useState('');
@@ -290,6 +307,8 @@ export default function Dashboard() {
     localStorage.setItem('dg-theme', theme);
   }, [theme]);
   useEffect(() => localStorage.setItem('dg-gas-threshold', String(gasThreshold)), [gasThreshold]);
+  useEffect(() => localStorage.setItem('dg-temperature-threshold', String(temperatureThreshold)), [temperatureThreshold]);
+  useEffect(() => localStorage.setItem('dg-humidity-threshold', String(humidityThreshold)), [humidityThreshold]);
   useEffect(() => sessionStorage.setItem('dg-ml-admin-token', adminToken), [adminToken]);
 
   async function mlRequest(path, options = {}) {
@@ -382,7 +401,9 @@ export default function Dashboard() {
   const online = data.device === 'online';
   const sensors = data.sensors;
   const activeAlerts = online && sensors ? [
-    sensors.gasRaw >= gasThreshold ? { key: 'gasRaw', label: 'Possible fire / gas hazard' } : null,
+    Number.isFinite(sensors.gasRaw) && sensors.gasRaw >= gasThreshold ? { key: 'gasRaw', label: 'Possible gas / smoke signal' } : null,
+    Number.isFinite(sensors.temperatureC) && sensors.temperatureC >= temperatureThreshold ? { key: 'temperatureC', label: 'High temperature threshold reached' } : null,
+    Number.isFinite(sensors.humidityPct) && sensors.humidityPct >= humidityThreshold ? { key: 'humidityPct', label: 'High humidity threshold reached' } : null,
     sensors.vibrationDetected ? { key: 'vibrationDetected', label: 'Vibration trigger' } : null,
     sensors.rainDetected ? { key: 'rainDetected', label: 'Storm warning · rain detected' } : null,
     sensors.objectDetected ? { key: 'objectDetected', label: 'Object detected' } : null,
@@ -425,7 +446,13 @@ export default function Dashboard() {
       <div className="incident-details" id="incident-details" hidden={!incidentsExpanded}>{!online ? <p>Waiting for live sensor readings.</p> : activeAlerts.length ? activeAlerts.map((alert) => <button className="incident-chip" type="button" key={alert.key} onClick={() => openSignal(alert.key)}>{alert.label}<span>View sensor ↗</span></button>) : <p>No active signals right now. This panel updates as new readings arrive.</p>}</div>
     </section>
     <section className="section-head" id="live-data"><div><p className="overline">FIELD UNIT 01 / LIVE FEED</p><h2>Live sensor data</h2></div><div className="updated"><span className="refresh-icon">↻</span>{online ? `Updated ${timeLabel(data.lastSeen)}` : 'Waiting for the ESP32'}</div></section>
-    <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} model={data.ml} liveSensors={sensors} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
+    <section className="sensor-grid" aria-label="Sensor readings">{cards.map((card) => <SensorCard key={card.key} card={card} value={sensors?.[card.key]} online={online} gasThreshold={gasThreshold} temperatureThreshold={temperatureThreshold} humidityThreshold={humidityThreshold} model={data.ml} liveSensors={sensors} onSelect={setMetric} selected={metric === (card.chart || card.key)} />)}</section>
+    <section className="threshold-controls" aria-label="Sensor alert thresholds">
+      <div className="threshold-panel"><div className="threshold-control-top"><div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke threshold</strong><small>MQ-135 raw ADC · 0–1500</small></div></div><output>{gasThreshold} <span>ADC</span></output></div><input aria-label="Gas alert threshold" type="range" min={GAS_ALERT_MIN} max={GAS_ALERT_MAX} step="10" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} /><small className="threshold-help">Alert when the reading reaches or exceeds this value.</small></div>
+      <div className="threshold-panel"><div className="threshold-control-top"><div className="threshold-copy"><span className="threshold-icon temperature">°C</span><div><strong>Temperature threshold</strong><small>DHT11 · 0–100 °C</small></div></div><output>{temperatureThreshold} <span>°C</span></output></div><input aria-label="Temperature alert threshold in degrees Celsius" type="range" min={ENVIRONMENT_THRESHOLD_MIN} max={ENVIRONMENT_THRESHOLD_MAX} step="1" value={temperatureThreshold} onChange={(event) => setTemperatureThreshold(Number(event.target.value))} /><small className="threshold-help">Alert at or above this temperature.</small></div>
+      <div className="threshold-panel"><div className="threshold-control-top"><div className="threshold-copy"><span className="threshold-icon humidity">%</span><div><strong>Humidity threshold</strong><small>DHT11 · 0–100% RH</small></div></div><output>{humidityThreshold} <span>% RH</span></output></div><input aria-label="Humidity alert threshold in percent relative humidity" type="range" min={ENVIRONMENT_THRESHOLD_MIN} max={ENVIRONMENT_THRESHOLD_MAX} step="1" value={humidityThreshold} onChange={(event) => setHumidityThreshold(Number(event.target.value))} /><small className="threshold-help">Alert at or above this humidity.</small></div>
+    </section>
+    <p className="sensor-note threshold-note">Thresholds are saved in this browser and add separate dashboard signals. They are configurable project alerts, not safety limits; the MQ-135 and DHT11 do not confirm fire, toxic gas, or unsafe conditions.</p>
     <section className="trend-panel" id="live-graph">
       <div className="trend-heading"><div><p className="overline">FIELD TELEMETRY / LAST {data.history?.length || 0} SAMPLES</p><h2>Signal history</h2></div><span className="chart-live"><i /> LIVE STREAM</span></div>
       <div className="metric-tabs" role="group" aria-label="Choose chart sensor">{chartOptions.map(([key, label]) => <button key={key} className={metric === key ? 'selected' : ''} aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}</div>
@@ -465,12 +492,6 @@ export default function Dashboard() {
       </>}
       <p className="ml-caution">Collect at least 20 real readings for any two categories to train; the model only predicts categories with enough examples. Its labels describe sensor patterns, not confirmed earthquake, storm or fire events. Never create smoke, fire, toxic gas, or unsafe conditions to collect examples.</p>
     </section>
-    <section className="threshold-panel">
-      <div className="threshold-copy"><span className="threshold-icon">♨</span><div><strong>Gas / smoke alert threshold</strong><small>Local setting · 0–1500 raw MQ-135 ADC</small></div></div>
-      <input aria-label="Gas alert threshold" type="range" min={GAS_ALERT_MIN} max={GAS_ALERT_MAX} step="10" value={gasThreshold} onChange={(event) => setGasThreshold(Number(event.target.value))} />
-      <output>{gasThreshold} <span>ADC</span></output>
-    </section>
-    <p className="sensor-note">Direct sensor alerts remain independent of the ML model. The MQ-135 responds to a broad mix of gases and smoke; it does not identify fire or a specific gas.</p>
     <section className="sdg-panel" id="sdg-mapping">
       <div className="sdg-heading"><div><p className="overline">PROJECT ALIGNMENT / UNITED NATIONS SDGS</p><h2>SDG mapping</h2><p>Open a goal to see local device and ML status, then jump to an AI explanation or the model itself.</p></div><span className="sdg-count">03 GOALS</span></div>
       <div className="sdg-grid">{sdgGoals.map((goal) => { const expanded = expandedSdg === goal.id; return <article className={`sdg-card${expanded ? ' expanded' : ''}`} key={goal.id} style={{ '--sdg-color': goal.color }}>

@@ -375,3 +375,23 @@ html[data-theme='light'] body{background:radial-gradient(ellipse at 78% -8%,#dce
 .shell.light .ai-quick-prompts button:hover,.shell.light .ml-crosslinks button:hover,.shell.light .sdg-actions button:hover{background:#eaf7fa;border-color:#92cbd5}
 .shell.light .sdg-live-grid>div{background:#f8fafc;border-color:#d3ddea}.shell.light .sdg-live-grid strong{color:#1d2b3e}
 @media(max-width:760px){.ai-quick-prompts,.ml-crosslinks{align-items:flex-start}.ai-quick-prompts>span,.ml-crosslinks>span{width:100%}.sdg-live-title{align-items:flex-start;flex-direction:column}.sdg-actions button{flex:1}}
+
+/* Threshold controls stay beside the live readings they configure */
+.threshold-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+.threshold-controls .threshold-panel{display:flex;min-width:0;flex-direction:column;align-items:stretch;gap:11px;margin:0;padding:13px 14px}
+.threshold-control-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.threshold-controls .threshold-copy{min-width:0;gap:8px}
+.threshold-controls .threshold-copy>div{min-width:0}
+.threshold-controls .threshold-copy strong{font-size:10px;line-height:1.4}
+.threshold-controls .threshold-copy small{font-size:8px;line-height:1.4}
+.threshold-controls .threshold-panel output{min-width:0;flex:none;font-size:11px}
+.threshold-controls .threshold-panel input{display:block;width:100%;margin:0;accent-color:var(--orange)}
+.threshold-controls .threshold-panel:nth-child(2) input{accent-color:var(--cyan)}
+.threshold-controls .threshold-panel:nth-child(3) input{accent-color:var(--blue)}
+.threshold-controls .threshold-icon.temperature{background:#172c39;color:var(--cyan);font-size:10px}
+.threshold-controls .threshold-icon.humidity{background:#172b3c;color:var(--blue)}
+.threshold-help{color:var(--muted);font-size:8px;line-height:1.4}
+.threshold-note{margin-bottom:8px}
+.shell.light .threshold-controls .threshold-icon.temperature{background:#e8f6fa;color:#087f99}
+.shell.light .threshold-controls .threshold-icon.humidity{background:#eaf2fb;color:#267cb7}
+@media(max-width:900px){.threshold-controls{grid-template-columns:1fr}}
