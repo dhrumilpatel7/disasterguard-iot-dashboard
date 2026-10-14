@@ -19,11 +19,11 @@ DHT dhtSensor(DHT11_PIN, DHT11_TYPE);
 // Match the polarity verified in the standalone sensor performance sketch.
 constexpr bool RAIN_ACTIVE_LOW = true;
 constexpr bool IR_ACTIVE_LOW = true;
-constexpr int LIGHTNING_SPIKE_THRESHOLD = 180;
-constexpr uint32_t LIGHTNING_DISPLAY_MS = 3000;
-constexpr uint32_t LIGHTNING_REFRACTORY_MS = 3000;
+constexpr int LIGHTNING_SPIKE_THRESHOLD = 120;
+constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
+constexpr uint32_t LIGHTNING_REFRACTORY_MS = 1000;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
-constexpr uint32_t DHT11_READ_INTERVAL_MS = 2500;
+constexpr uint32_t DHT11_READ_INTERVAL_MS = 1000;
 constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
 // Typical SW-420 LM393 modules idle LOW and switch HIGH when vibration crosses the potentiometer threshold.
 // Set true only if this specific module is confirmed to trigger LOW.
@@ -200,9 +200,9 @@ uint8_t sampleSensors(uint32_t now) {
     lightningDetected = false;
   }
 
-  // A 1/16 update per 10 ms sample follows ambient changes over a few hundred
-  // milliseconds while leaving brief flashes visible as deviations.
-  lightBaselineQ8 += ((static_cast<int32_t>(lightRaw) << 8) - lightBaselineQ8) / 16;
+  // A 1/32 update per 10 ms sample lets the ambient baseline follow gradual
+  // changes without quickly absorbing a brief flashlight pulse.
+  lightBaselineQ8 += ((static_cast<int32_t>(lightRaw) << 8) - lightBaselineQ8) / 32;
 
   // Remember starts until a publish succeeds. This preserves brief pulses
   // that occur during the one-second urgent-publish rate limit.
