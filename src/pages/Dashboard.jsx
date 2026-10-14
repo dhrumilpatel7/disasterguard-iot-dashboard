@@ -258,6 +258,19 @@ export default function Dashboard() {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    const scrollToHash = () => {
+      const sectionId = decodeURIComponent(window.location.hash.slice(1));
+      if (!sectionId) return;
+      const target = document.getElementById(sectionId);
+      if (!target) return;
+      setActiveSection(sectionId);
+      requestAnimationFrame(() => target.scrollIntoView({ behavior: 'auto', block: 'start' }));
+    };
+    scrollToHash();
+    window.addEventListener('hashchange', scrollToHash);
+    return () => window.removeEventListener('hashchange', scrollToHash);
+  }, []);
+  useEffect(() => {
     const events = new EventSource('/api/events');
     events.onmessage = (event) => {
       const update = JSON.parse(event.data);
