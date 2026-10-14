@@ -125,8 +125,8 @@ void connectMqtt() {
     if (mqttClient.connect(clientId, MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println(" connected");
     } else {
-      Serial.printf(" failed (state %d); retrying in 3 seconds\n", mqttClient.state());
-      delay(3000);
+      Serial.printf(" failed (state %d); retrying in 1 second\n", mqttClient.state());
+      delay(1000);
     }
   }
 }
