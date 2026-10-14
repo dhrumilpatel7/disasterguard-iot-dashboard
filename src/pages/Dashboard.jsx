@@ -235,9 +235,17 @@ export default function Dashboard() {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    fetch('/api/status').then((response) => response.json()).then(setData).catch(() => setData({ ...initial, mqtt: 'unavailable' }));
     const events = new EventSource('/api/events');
-    events.onmessage = (event) => setData(JSON.parse(event.data));
+    events.onmessage = (event) => {
+      const update = JSON.parse(event.data);
+      setData((current) => {
+        const history = Array.isArray(update.history) ? update.history
+          : update.historyPoint ? [...(current.history || []), update.historyPoint].slice(-120)
+            : current.history;
+        const { historyPoint: _historyPoint, ...snapshot } = update;
+        return { ...current, ...snapshot, history };
+      });
+    };
     events.onerror = () => setData((current) => ({ ...current, server: 'reconnecting' }));
     return () => events.close();
   }, []);

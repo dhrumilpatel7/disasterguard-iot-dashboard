@@ -46,6 +46,7 @@ let latest = null;
 const history = [];
 const clients = new Set();
 let trainingWriteQueue = Promise.resolve();
+let trainingSummaryCache = null;
 let aiWindowStartedAt = Date.now();
 let aiGuideRequestsUsed = 0;
 let aiLastGuideRequestAt = 0;
@@ -74,8 +75,13 @@ let lastTrainingSampleCount = 0;
 let lastTrainingAt = null;
 let lastTrainingMode = null;
 
+function currentTrainingSummary() {
+  if (!trainingSummaryCache) trainingSummaryCache = summarizeTraining(labeledSamples);
+  return trainingSummaryCache;
+}
+
 function retrainIfReady(force = false, mode = 'automatic') {
-  const summary = summarizeTraining(labeledSamples);
+  const summary = currentTrainingSummary();
   if (summary.trainableLabels.length < summary.minimumClasses) return false;
   if (!force && hazardModel && labeledSamples.length - lastTrainedLabeledCount < autoTrainEverySamples) return false;
   const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
@@ -90,7 +96,7 @@ function retrainIfReady(force = false, mode = 'automatic') {
 }
 
 function mlSnapshot(sensors = latest?.sensors) {
-  const summary = summarizeTraining(labeledSamples);
+  const summary = currentTrainingSummary();
   const trained = Boolean(hazardModel);
   return {
     status: trained && !modelDirty ? 'ready' : hazardModel ? 'needs_retraining' : 'collecting',
@@ -111,7 +117,7 @@ function mlSnapshot(sensors = latest?.sensors) {
   };
 }
 
-function snapshot() {
+function snapshot(includeHistory = true) {
   const age = latest ? Date.now() - latest.receivedAt : null;
   return {
     mqtt: mqttState,
@@ -121,11 +127,19 @@ function snapshot() {
     lastSeen: latest?.receivedAt ?? null,
     sensors: latest?.sensors ?? null,
     ml: mlSnapshot(),
-    history,
+    ...(includeHistory ? { history } : {}),
   };
 }
 function send(response) { response.write(`data: ${JSON.stringify(snapshot())}\n\n`); }
-function broadcast() { for (const client of clients) send(client); }
+function broadcast(historyPoint = null) {
+  const current = snapshot(false);
+  if (historyPoint) current.historyPoint = historyPoint;
+  const frame = `data: ${JSON.stringify(current)}\n\n`;
+  for (const client of clients) {
+    if (client.destroyed || client.writableEnded) clients.delete(client);
+    else client.write(frame);
+  }
+}
 class ValidationError extends Error {
   constructor(message) {
     super(message);
@@ -254,7 +268,7 @@ app.delete('/api/ml/capture', requireMlAdmin, (_request, response) => {
 });
 app.post('/api/ml/train', requireMlAdmin, (_request, response) => {
   if (capture) return response.status(409).json({ error: 'Stop the current capture before training the model.' });
-  const summary = summarizeTraining(labeledSamples);
+  const summary = currentTrainingSummary();
   if (summary.trainableLabels.length < summary.minimumClasses) return response.status(400).json({ error: `Collect at least ${summary.minimumPerClass} real readings for any two categories first. Currently ready: ${summary.trainableLabels.length}/2.` });
   const trainingSamples = labeledSamples.filter((sample) => summary.trainableLabels.includes(sample.label));
   hazardModel = trainHazardTree(trainingSamples);
@@ -278,6 +292,7 @@ app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
     const importedOrigin = request.body.demoOnly === true ? 'synthetic_demo' : request.body.containsSyntheticData === true ? 'mixed' : 'imported';
     await saveTrainingData(imported, importedOrigin);
     labeledSamples = imported;
+    trainingSummaryCache = null;
     datasetOrigin = importedOrigin;
     capture = null;
     hazardModel = null;
@@ -295,8 +310,9 @@ app.post('/api/ml/import', requireMlAdmin, async (request, response, next) => {
 try {
   const saved = JSON.parse(await readFile(trainingFile, 'utf8'));
   labeledSamples = cleanLabeledSamples(saved.samples);
+  trainingSummaryCache = null;
   datasetOrigin = saved.demoOnly === true ? 'synthetic_demo' : (saved.containsSyntheticData === true ? 'mixed' : (saved.origin || (labeledSamples.length ? 'saved_data' : 'empty')));
-  const counts = summarizeTraining(labeledSamples).counts;
+  const counts = currentTrainingSummary().counts;
   const trainedLabels = HAZARD_CLASSES.map(({ id }) => id).filter((id) => counts[id] >= 20);
   if (trainedLabels.length >= 2) retrainIfReady(true, 'restored saved data');
   console.log(`Loaded ${labeledSamples.length} labeled ML readings.`);
@@ -337,6 +353,7 @@ if (brokerUrl && brokerProtocolIsSecure) {
           if (datasetOrigin === 'empty') datasetOrigin = 'captured';
           else if (datasetOrigin === 'synthetic_demo' || datasetOrigin === 'imported') datasetOrigin = 'mixed';
           labeledSamples.push({ label: capture.label, sensors, at: receivedAt });
+          trainingSummaryCache = null;
           capture.samplesAdded += 1;
           modelDirty = Boolean(hazardModel);
           saveTrainingData().catch((error) => console.error('Could not save ML training data:', error.message));
@@ -349,7 +366,7 @@ if (brokerUrl && brokerProtocolIsSecure) {
       const prediction = mlSnapshot(sensors).prediction;
       history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, temperatureC: sensors.temperatureC, humidityPct: sensors.humidityPct, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected, modelClass: prediction?.classId ?? null });
       if (history.length > historyLimit) history.shift();
-      broadcast();
+      broadcast(history[history.length - 1]);
     }
     catch (error) { console.warn('Ignored invalid telemetry:', error.message); }
   });
