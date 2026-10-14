@@ -84,6 +84,7 @@ button,input{font:inherit}
 .unit{font:9px 'DM Mono',monospace;color:#8292a8;letter-spacing:0}
 .gas-meter{height:4px;background:#28364a;border-radius:5px;margin-top:8px;overflow:hidden}
 .gas-meter span{height:100%;display:block;background:linear-gradient(90deg,var(--cyan),var(--orange),var(--red));border-radius:5px;transition:width .25s}
+.gas-alert-label{margin-top:6px;color:#ff7b86;font:9px/1.4 'DM Mono',monospace}
 .model-detail{font:9px 'DM Mono',monospace;color:#8fa5be;margin-top:7px}
 .card-foot{display:flex;justify-content:space-between;gap:6px;align-items:center;border-top:1px solid #29374b;margin-top:auto;padding-top:10px;color:#8190a5;font:9px 'DM Mono',monospace}
 .card-state{color:#91a2b8;white-space:nowrap}
