@@ -42,27 +42,46 @@ const sdgGoals = [
   { id: 11, title: 'Sustainable Cities and Communities', color: '#f5a623', summary: 'Relates to exploring how local environmental signals could be made visible to a community response team.', detail: 'The dashboard can help demonstrate situational awareness using a single ESP32 unit. It is not an official city warning system and has not been validated for emergency response.' },
   { id: 13, title: 'Climate Action', color: '#4c9f38', summary: 'Supports learning about environmental monitoring and climate-related data through connected sensors.', detail: 'The current sensors provide limited local readings, not climate science or long-term climate measurements. This is a conceptual SDG connection, not a certified SDG contribution or measured outcome.' },
 ];
-const aiGuideOptions = [
-  ['ml-basics', 'How the ML model works'],
-  ['ml-accuracy', 'Understanding model accuracy'],
-  ['ml-prediction', 'How to read an ML prediction'],
-  ['training-data', 'How to collect safe training data'],
-  ['sensor-limits', 'What this project cannot confirm'],
-  ['adc-readings', 'Understanding raw ADC values'],
-  ['gas-sensor', 'MQ-135 readings and gas thresholds'],
-  ['vibration-sensor', 'SW-420 vibration trigger troubleshooting'],
-  ['rain-sensor', 'Rain sensor trigger troubleshooting'],
-  ['object-sensor', 'IR object sensor troubleshooting'],
-  ['lightning-sensor', 'LDR spikes and light-flash detection'],
-  ['multiple-hazards', 'How simultaneous alerts are counted'],
-  ['offline-status', 'Why the dashboard says awaiting data'],
-  ['mqtt-overview', 'How MQTT connects the ESP32 to the dashboard'],
-  ['telemetry-format', 'What the ESP32 telemetry message contains'],
-  ['charts', 'How to read the interactive sensor charts'],
-  ['threshold-setting', 'Choosing a gas alert threshold'],
-  ['wifi-troubleshooting', 'ESP32 Wi-Fi connection troubleshooting'],
-  ['deployment-security', 'Keeping the hosted dashboard and keys secure'],
+const aiGuideSections = [
+  { id: 'sensors', title: 'Sensors & readings', topics: [
+    ['adc-readings', 'What do raw ADC readings mean?'], ['gas-sensor', 'How should I interpret MQ-135 readings?'],
+    ['gas-warmup', 'Why does the MQ-135 need warm-up time?'], ['gas-threshold', 'How does the gas alert threshold work?'],
+    ['vibration-sensor', 'How do I troubleshoot SW-420 polarity?'], ['rain-sensor', 'How do I check rain sensor polarity?'],
+    ['object-sensor', 'How does the IR object sensor behave?'], ['lightning-sensor', 'How does LDR flash detection work?'],
+    ['dht11', 'What can the DHT11 temperature and humidity readings tell me?'], ['sensor-limits', 'What can these sensors not confirm?'],
+  ] },
+  { id: 'esp32', title: 'ESP32 & wiring', topics: [
+    ['pin-map', 'What is the DisasterGuard sensor pin map?'], ['gpio-voltage', 'Why must ESP32 GPIO stay at 3.3 volts?'],
+    ['dht11-wiring', 'How should I wire the DHT11 to GPIO 27?'], ['powering-esp32', 'Can I power the ESP32 from a phone USB port?'],
+    ['firmware-upload', 'Do I need to upload the sketch every time?'], ['serial-monitor', 'How do I use Serial Monitor to diagnose the ESP32?'],
+    ['wifi-troubleshooting', 'Why will the ESP32 not join my Wi-Fi or hotspot?'], ['wifi-2ghz', 'Why does the ESP32 need 2.4 GHz Wi-Fi?'],
+    ['firmware-interval', 'How often does the firmware sample and publish readings?'], ['sensor-common-ground', 'Why do the ESP32 and sensors need a common ground?'],
+  ] },
+  { id: 'dashboard', title: 'MQTT & dashboard', topics: [
+    ['mqtt-overview', 'How does MQTT connect the ESP32 to the dashboard?'], ['telemetry-format', 'What is inside an ESP32 telemetry message?'],
+    ['offline-status', 'Why does the dashboard say “Awaiting data”?'], ['charts', 'How do I read and hover over the live charts?'],
+    ['multiple-hazards', 'How are simultaneous sensor signals counted?'], ['update-timing', 'Why can readings arrive slower than one second?'],
+    ['sse-stream', 'How does the website receive updates without refreshing?'], ['history-retention', 'How much chart history is kept?'],
+    ['mqtt-topics', 'What is an MQTT topic and which one does this project use?'], ['dashboard-alerts', 'How are direct sensor alerts different from thresholds?'],
+  ] },
+  { id: 'ml', title: 'ML & training', topics: [
+    ['ml-basics', 'How does the supervised ML model work?'], ['ml-accuracy', 'What does model accuracy really mean?'],
+    ['ml-prediction', 'How should I interpret the ML prediction?'], ['ml-vs-alerts', 'How is ML different from a direct sensor alert?'],
+    ['ml-features', 'Which readings does the decision tree use?'], ['ml-tree-logic', 'How does a decision tree choose a class?'],
+    ['training-data', 'How can I collect balanced, safe training data?'], ['training-labels', 'How should I label sensor examples?'],
+    ['auto-training', 'When does automatic model training happen?'], ['synthetic-data', 'Why can synthetic training data look unrealistically accurate?'],
+    ['model-validation', 'How can I evaluate a model with a small dataset?'], ['ml-import-export', 'How do I import or back up labeled examples?'],
+    ['ml-light-flash', 'How do I collect light-flash examples safely?'], ['ml-object-pattern', 'What does an object-associated ML pattern mean?'],
+  ] },
+  { id: 'safety-hosting', title: 'Safety & hosting', topics: [
+    ['fire-gas-limits', 'Can MQ-135 confirm a fire or toxic gas?'], ['vibration-limits', 'Does an SW-420 detect an earthquake?'],
+    ['lightning-limits', 'Can an LDR confirm a lightning strike?'], ['safe-testing', 'How can I test sensors without creating hazards?'],
+    ['threshold-setting', 'How should I choose a project alert threshold?'], ['deployment-security', 'How do I protect hosted keys and credentials?'],
+    ['render-deploy', 'What happens when the Render service redeploys?'], ['free-tier-limits', 'What free-tier limits affect this project?'],
+    ['mqtt-tls', 'Why does the cloud MQTT connection use TLS?'], ['sdg-project-limits', 'How does this prototype relate to SDGs 9, 11 and 13?'],
+  ] },
 ];
+const aiGuideOptions = aiGuideSections.flatMap((section) => section.topics);
 const timeLabel = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value) : 'No readings received yet';
 function getTrainingProgress(ml = {}, online) {
   const capture = ml.capture;
@@ -221,9 +240,11 @@ export default function Dashboard() {
   const [trainingMessage, setTrainingMessage] = useState('');
   const [trainingBusy, setTrainingBusy] = useState(false);
   const [aiTopic, setAiTopic] = useState(aiGuideOptions[0][0]);
+  const [aiSection, setAiSection] = useState(aiGuideSections[0].id);
   const [aiExplanation, setAiExplanation] = useState('');
   const [aiMessage, setAiMessage] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  const activeAiSection = aiGuideSections.find((section) => section.id === aiSection) || aiGuideSections[0];
   useEffect(() => {
     const targets = navigationSections.map(([id]) => document.getElementById(id)).filter(Boolean);
     if (!targets.length) return undefined;
@@ -376,10 +397,11 @@ export default function Dashboard() {
       <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'temperatureC' ? 'TEMPERATURE · °C' : metric === 'humidityPct' ? 'RELATIVE HUMIDITY · % RH' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
     </section>
     <section className="ai-guide-panel" id="ai-guide">
-      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
-      <div className="ai-guide-controls"><label>Choose a topic<select value={aiTopic} onChange={(event) => setAiTopic(event.target.value)}>{aiGuideOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
+      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Browse {aiGuideOptions.length} indexed questions about this project’s actual sensors, firmware, dashboard, and ML.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
+      <nav className="ai-guide-index" aria-label="AI field guide sections">{aiGuideSections.map((section, index) => <button type="button" key={section.id} className={aiSection === section.id ? 'selected' : ''} aria-pressed={aiSection === section.id} onClick={() => { setAiSection(section.id); setAiTopic(section.topics[0][0]); setAiExplanation(''); setAiMessage(''); }}><span>{String(index + 1).padStart(2, '0')}</span>{section.title}<small>{section.topics.length}</small></button>)}</nav>
+      <div className="ai-guide-controls"><label><span>INDEX {String(aiGuideSections.findIndex((section) => section.id === activeAiSection.id) + 1).padStart(2, '0')} · {activeAiSection.title}</span><select value={aiTopic} onChange={(event) => { setAiTopic(event.target.value); setAiExplanation(''); setAiMessage(''); }}>{activeAiSection.topics.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
       {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
-      <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only the fixed topic you select. The guide never receives live sensor readings, alerts, training data, or ML results. The app limits requests to 10 per day; Google applies its own free-tier quotas and may use free-tier prompts to improve its products.</p>
+      <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only one fixed topic prompt. The guide never receives live readings, alerts, training data, or ML results. Requests are limited to 10 per day and also follow Google’s free-tier quotas.</p>
       {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
       {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
     </section>
