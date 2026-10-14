@@ -21,11 +21,15 @@ constexpr bool RAIN_ACTIVE_LOW = true;
 constexpr bool IR_ACTIVE_LOW = true;
 constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
 constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
-constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 50;
+constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
 constexpr uint32_t DHT11_READ_INTERVAL_MS = 2500;
 constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
-// The connected SW-420 module is behaving active-low on the user's setup.
-constexpr bool VIBRATION_ACTIVE_LOW = true;
+// Typical SW-420 LM393 modules idle LOW and switch HIGH when vibration crosses the potentiometer threshold.
+// Set true only if this specific module is confirmed to trigger LOW.
+constexpr bool VIBRATION_ACTIVE_LOW = false;
+constexpr uint8_t VIBRATION_CONFIRM_SAMPLES = 3;
+uint8_t vibrationCandidateSamples = 0;
+bool vibrationCandidateActive = false;
 constexpr uint8_t ALERT_RAIN = 1 << 0;
 constexpr uint8_t ALERT_OBJECT = 1 << 1;
 constexpr uint8_t ALERT_VIBRATION = 1 << 2;
@@ -34,7 +38,7 @@ constexpr uint8_t ALERT_LIGHTNING = 1 << 3;
 constexpr char MQTT_HOST[] = "o1fbc6cf.ala.asia-southeast1.emqxsl.com";
 constexpr uint16_t MQTT_PORT = 8883;
 constexpr char MQTT_TOPIC[] = "disasterguard/esp32-01/telemetry";
-// Routine telemetry every 2 seconds; sensor sampling remains at 50 ms.
+// Routine telemetry every 2 seconds; sensors are sampled every 10 ms.
 constexpr uint32_t PUBLISH_INTERVAL_MS = 2000;
 
 WiFiClientSecure tlsClient;
@@ -143,9 +147,28 @@ uint8_t sampleSensors(uint32_t now) {
   lightRaw = analogRead(LDR_PIN);
   rainDetected = readActive(RAIN_DO_PIN, RAIN_ACTIVE_LOW);
   objectDetected = readActive(IR_OUT_PIN, IR_ACTIVE_LOW);
-  // Match the connected module's observed polarity: LOW means vibration.
+  // Debounce the SW-420 comparator output. Its common idle state is LOW; HIGH
+  // must persist for three 10 ms samples before it counts as vibration.
   const int vibrationLevel = digitalRead(SW420_DO_PIN);
-  vibrationDetected = VIBRATION_ACTIVE_LOW ? vibrationLevel == LOW : vibrationLevel == HIGH;
+  const bool vibrationCandidate = VIBRATION_ACTIVE_LOW ? vibrationLevel == LOW : vibrationLevel == HIGH;
+  if (vibrationCandidate == vibrationDetected) {
+    vibrationCandidateActive = vibrationDetected;
+    vibrationCandidateSamples = 0;
+  } else {
+    if (vibrationCandidate != vibrationCandidateActive) {
+      vibrationCandidateActive = vibrationCandidate;
+      vibrationCandidateSamples = 1;
+    } else if (vibrationCandidateSamples < VIBRATION_CONFIRM_SAMPLES) {
+      vibrationCandidateSamples++;
+    }
+    if (vibrationCandidateSamples >= VIBRATION_CONFIRM_SAMPLES) {
+      vibrationDetected = vibrationCandidateActive;
+      vibrationCandidateSamples = 0;
+      Serial.printf("SW-420 DO %s -> %s\n",
+                    vibrationLevel == HIGH ? "HIGH" : "LOW",
+                    vibrationDetected ? "VIBRATION" : "clear");
+    }
+  }
 
   // Establish the first live sample as the baseline so time spent connecting
   // to Wi-Fi cannot be mistaken for a sudden flash at boot.

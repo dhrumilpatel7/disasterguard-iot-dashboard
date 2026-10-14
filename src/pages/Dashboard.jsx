@@ -12,7 +12,7 @@ function savedGasThreshold() {
 const initial = { mqtt: 'connecting', device: 'offline', lastSeen: null, sensors: null, history: [], ml: { status: 'collecting', total: 0, counts: {}, classes: [], prediction: null } };
 const cards = [
   { key: 'gasRaw', title: 'Fire / gas watch', icon: '♨', unit: 'ADC / 4095', detail: 'MQ-135 · GPIO 32', kind: 'gas' },
-  { key: 'vibrationDetected', title: 'Earthquake watch', icon: '〰', detail: 'SW-420 vibration trigger · GPIO 25', kind: 'boolean', active: 'Possible earthquake detected', clear: 'No vibration detected', chart: 'vibrationDetected' },
+  { key: 'vibrationDetected', title: 'Vibration watch', icon: '〰', detail: 'SW-420 debounced output · GPIO 25', kind: 'boolean', active: 'Vibration detected · inspect site', clear: 'No vibration detected', chart: 'vibrationDetected' },
   { key: 'rainDetected', title: 'Storm watch', icon: '⛈', detail: 'Rain sensor · GPIO 35', kind: 'boolean', active: 'Storm warning · rain detected', clear: 'No rain detected', chart: 'rainDetected' },
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected', chart: 'lightningDetected' },
@@ -318,7 +318,7 @@ export default function Dashboard() {
   const sensors = data.sensors;
   const activeAlerts = online && sensors ? [
     sensors.gasRaw >= gasThreshold ? { key: 'gasRaw', label: 'Possible fire / gas hazard' } : null,
-    sensors.vibrationDetected ? { key: 'vibrationDetected', label: 'Possible earthquake' } : null,
+    sensors.vibrationDetected ? { key: 'vibrationDetected', label: 'Vibration trigger' } : null,
     sensors.rainDetected ? { key: 'rainDetected', label: 'Storm warning · rain detected' } : null,
     sensors.objectDetected ? { key: 'objectDetected', label: 'Object detected' } : null,
     sensors.lightningDetected ? { key: 'lightningDetected', label: 'Lightning detected' } : null,
