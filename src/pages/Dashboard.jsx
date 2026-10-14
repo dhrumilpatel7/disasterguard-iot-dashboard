@@ -15,7 +15,7 @@ const cards = [
   { key: 'vibrationDetected', title: 'Vibration watch', icon: '〰', detail: 'SW-420 debounced output · GPIO 25', kind: 'boolean', active: 'Vibration detected · inspect site', clear: 'No vibration detected', chart: 'vibrationDetected' },
   { key: 'rainDetected', title: 'Storm watch', icon: '⛈', detail: 'Rain sensor · GPIO 35', kind: 'boolean', active: 'Storm warning · rain detected', clear: 'No rain detected', chart: 'rainDetected' },
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
-  { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR ±250 ADC flash spike · GPIO 34', kind: 'boolean', active: 'Sudden light flash detected', clear: 'No sudden light flash', chart: 'lightningDetected' },
+  { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR ±180 ADC flash spike · GPIO 34', kind: 'boolean', active: 'Sudden light flash detected', clear: 'No sudden light flash', chart: 'lightningDetected' },
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading', chart: 'lightRaw' },
   { key: 'temperatureC', title: 'Temperature', icon: '°C', unit: '°C', detail: 'DHT11 · GPIO 27', kind: 'reading', chart: 'temperatureC' },
   { key: 'humidityPct', title: 'Humidity', icon: '%', unit: '% RH', detail: 'DHT11 · GPIO 27', kind: 'reading', chart: 'humidityPct' },

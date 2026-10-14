@@ -19,9 +19,9 @@ DHT dhtSensor(DHT11_PIN, DHT11_TYPE);
 // Match the polarity verified in the standalone sensor performance sketch.
 constexpr bool RAIN_ACTIVE_LOW = true;
 constexpr bool IR_ACTIVE_LOW = true;
-constexpr int LIGHTNING_SPIKE_THRESHOLD = 250;
-constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
-constexpr uint32_t LIGHTNING_REFRACTORY_MS = 1500;
+constexpr int LIGHTNING_SPIKE_THRESHOLD = 180;
+constexpr uint32_t LIGHTNING_DISPLAY_MS = 3000;
+constexpr uint32_t LIGHTNING_REFRACTORY_MS = 3000;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
 constexpr uint32_t DHT11_READ_INTERVAL_MS = 2500;
 constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
@@ -39,8 +39,8 @@ constexpr uint8_t ALERT_LIGHTNING = 1 << 3;
 constexpr char MQTT_HOST[] = "o1fbc6cf.ala.asia-southeast1.emqxsl.com";
 constexpr uint16_t MQTT_PORT = 8883;
 constexpr char MQTT_TOPIC[] = "disasterguard/esp32-01/telemetry";
-// Routine telemetry every 2 seconds; sensors are sampled every 10 ms.
-constexpr uint32_t PUBLISH_INTERVAL_MS = 2000;
+// Routine telemetry every second; sensors are sampled every 10 ms.
+constexpr uint32_t PUBLISH_INTERVAL_MS = 1000;
 
 WiFiClientSecure tlsClient;
 PubSubClient mqttClient(tlsClient);
@@ -194,7 +194,7 @@ uint8_t sampleSensors(uint32_t now) {
     lightningDetected = true;
     lightningDetectedAt = now;
     lastLightningTriggerAt = now;
-      Serial.printf("LDR flash spike: raw=%d baseline=%d delta=%d ADC\n",
+    Serial.printf("LDR flash spike: raw=%d baseline=%d delta=%d ADC\n",
                   lightRaw, lightBaseline, lightDelta);
   } else if (lightningDetected && now - lightningDetectedAt >= LIGHTNING_DISPLAY_MS) {
     lightningDetected = false;
