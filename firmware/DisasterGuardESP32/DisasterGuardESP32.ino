@@ -123,7 +123,7 @@ void connectMqtt() {
       Serial.println(" connected");
     } else {
       Serial.printf(" failed (state %d); retrying in 3 seconds\n", mqttClient.state());
-      delay(3000);
+      delay(1000);
     }
   }
 }
