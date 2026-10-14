@@ -35,7 +35,7 @@ const aiGuideTopics = Object.freeze({
   'multiple-hazards': 'Explain that each active sensor trigger should count as a separate signal and how the dashboard may display multiple simultaneous warnings without claiming a confirmed disaster.',
   'offline-status': 'Explain the difference between ESP32 Wi-Fi, MQTT broker connectivity, server telemetry receipt, stale data, and an Awaiting data dashboard state; give a short diagnostic order.',
   'mqtt-overview': 'Explain the ESP32-to-cloud-MQTT-to-Node-server-to-dashboard data path using simple terms, including why TLS and the server-side broker credentials matter.',
-  'telemetry-format': 'Describe the expected JSON telemetry fields in this project: gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, and optional lightningDetected. Give a small example and explain types.',
+  'telemetry-format': 'Describe the expected JSON telemetry fields in this project: gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, optional lightningDetected, and optional DHT11 temperatureC in Celsius and humidityPct in percent. Give a small example and explain types.',
   'charts': 'Explain how to read the dashboard’s interactive time-series charts, hover values, timestamps, missing data, and why short in-memory history is not a permanent archive.',
   'threshold-setting': 'Explain how the adjustable gas alert threshold from 0 to 1500 ADC changes this project’s warning display, and why it is not a calibrated fire or toxic-gas alarm limit.',
   'wifi-troubleshooting': 'Give a concise, safe checklist for ESP32 Wi-Fi troubleshooting: 2.4 GHz compatibility, hotspot visibility, exact SSID/password, signal strength, and serial status.',
@@ -148,10 +148,14 @@ function parseTelemetry(input) {
   const sensors = message.sensors ?? message;
   if (!sensors || typeof sensors !== 'object' || Array.isArray(sensors)) throw new ValidationError('Each reading must include a sensors object.');
   const { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected } = sensors;
+  const temperatureC = sensors.temperatureC == null ? null : sensors.temperatureC;
+  const humidityPct = sensors.humidityPct == null ? null : sensors.humidityPct;
   if (![gasRaw, lightRaw].every((value) => Number.isInteger(value) && value >= 0 && value <= 4095)) throw new ValidationError('Each reading needs gasRaw and lightRaw ADC values from 0 to 4095.');
   if (![rainDetected, objectDetected, vibrationDetected].every((value) => typeof value === 'boolean')) throw new ValidationError('Each reading needs rainDetected, objectDetected, and vibrationDetected as true or false.');
   if (lightningDetected != null && typeof lightningDetected !== 'boolean') throw new ValidationError('lightningDetected must be true, false, or omitted.');
-  return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected: lightningDetected ?? null };
+  if (temperatureC !== null && (typeof temperatureC !== 'number' || !Number.isFinite(temperatureC) || temperatureC < -40 || temperatureC > 85)) throw new ValidationError('temperatureC must be a valid Celsius number or null.');
+  if (humidityPct !== null && (typeof humidityPct !== 'number' || !Number.isFinite(humidityPct) || humidityPct < 0 || humidityPct > 100)) throw new ValidationError('humidityPct must be a percent from 0 to 100 or null.');
+  return { gasRaw, lightRaw, rainDetected, objectDetected, vibrationDetected, lightningDetected: lightningDetected ?? null, temperatureC, humidityPct };
 }
 
 function requireMlAdmin(request, response, next) {
@@ -343,7 +347,7 @@ if (brokerUrl && brokerProtocolIsSecure) {
         console.warn('Stopped ML capture at 20,000 labeled readings.');
       }
       const prediction = mlSnapshot(sensors).prediction;
-      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected, modelClass: prediction?.classId ?? null });
+      history.push({ at: receivedAt, gasRaw: sensors.gasRaw, lightRaw: sensors.lightRaw, temperatureC: sensors.temperatureC, humidityPct: sensors.humidityPct, vibrationDetected: sensors.vibrationDetected, lightningDetected: sensors.lightningDetected, rainDetected: sensors.rainDetected, objectDetected: sensors.objectDetected, modelClass: prediction?.classId ?? null });
       if (history.length > historyLimit) history.shift();
       broadcast();
     }

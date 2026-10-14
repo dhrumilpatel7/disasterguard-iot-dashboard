@@ -17,6 +17,8 @@ const cards = [
   { key: 'objectDetected', title: 'Object detection', icon: '⌕', detail: 'IR sensor · GPIO 26', kind: 'boolean', active: 'Object detected', clear: 'No object detected', chart: 'objectDetected' },
   { key: 'lightningDetected', title: 'Lightning watch', icon: 'ϟ', detail: 'LDR light spike · GPIO 34', kind: 'boolean', active: 'Lightning detected', clear: 'No lightning detected', chart: 'lightningDetected' },
   { key: 'lightRaw', title: 'Light level', icon: '☼', unit: 'ADC / 4095', detail: 'LDR · GPIO 34', kind: 'reading', chart: 'lightRaw' },
+  { key: 'temperatureC', title: 'Temperature', icon: '°C', unit: '°C', detail: 'DHT11 · GPIO 27', kind: 'reading', chart: 'temperatureC' },
+  { key: 'humidityPct', title: 'Humidity', icon: '%', unit: '% RH', detail: 'DHT11 · GPIO 27', kind: 'reading', chart: 'humidityPct' },
   { key: 'hazardPrediction', title: 'ML pattern analysis', icon: 'ML', detail: 'Learned decision tree · labeled examples', kind: 'model', active: 'Learned warning pattern', clear: 'No learned match', chart: 'modelClass' },
 ];
 const learnedPatternLabels = {
@@ -30,6 +32,7 @@ const learnedPatternLabels = {
 const chartOptions = [
   ['gasRaw', 'Gas'], ['lightRaw', 'Light'], ['modelClass', 'ML class'], ['vibrationDetected', 'Vibration'],
   ['rainDetected', 'Rain'], ['objectDetected', 'Object'], ['lightningDetected', 'Lightning'],
+  ['temperatureC', 'Temperature'], ['humidityPct', 'Humidity'],
 ];
 const navigationSections = [
   ['dashboard', 'Dashboard'], ['live-data', 'Live data'], ['live-graph', 'Live graph'], ['ai-guide', 'AI field guide'], ['ml-model', 'ML model'], ['sdg-mapping', 'SDG mapping'],
@@ -183,6 +186,8 @@ function TrendChart({ history, metric }) {
     setActiveIndex(Math.round(ratio * (plotted.length - 1)));
   }
   function tooltipValue(value) {
+    if (metric === 'temperatureC') return `${value.toFixed(1)} °C`;
+    if (metric === 'humidityPct') return `${value.toFixed(1)} % RH`;
     if (isBooleanMetric) return value ? 'Active' : 'Clear';
     if (isClassMetric) return ({ normal: 'Normal conditions', gas_signal: 'Gas / smoke sensor signal', rain_signal: 'Rain sensor trigger', vibration: 'Vibration trigger', light_flash: 'Sudden light flash', object: 'Object sensor trigger' })[value] || value;
     return `${value.toLocaleString()} ADC`;
@@ -360,7 +365,7 @@ export default function Dashboard() {
       <div className="trend-heading"><div><p className="overline">FIELD TELEMETRY / LAST {data.history?.length || 0} SAMPLES</p><h2>Signal history</h2></div><span className="chart-live"><i /> LIVE STREAM</span></div>
       <div className="metric-tabs" role="group" aria-label="Choose chart sensor">{chartOptions.map(([key, label]) => <button key={key} className={metric === key ? 'selected' : ''} aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}</div>
       <TrendChart history={data.history || []} metric={metric} />
-      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
+      <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'temperatureC' ? 'TEMPERATURE · °C' : metric === 'humidityPct' ? 'RELATIVE HUMIDITY · % RH' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
     </section>
     <section className="ai-guide-panel" id="ai-guide">
       <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Ask for a general explanation about the dashboard or its sensors.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>

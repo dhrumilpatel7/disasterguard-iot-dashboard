@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <DHT.h>
+#include <math.h>
 
 #include "secrets.h"
 
@@ -10,6 +12,9 @@ constexpr uint8_t RAIN_DO_PIN = 35;
 constexpr uint8_t IR_OUT_PIN = 26;
 constexpr uint8_t SW420_DO_PIN = 25;
 constexpr uint8_t LDR_PIN = 34;
+constexpr uint8_t DHT11_PIN = 27;
+constexpr uint8_t DHT11_TYPE = DHT11;
+DHT dhtSensor(DHT11_PIN, DHT11_TYPE);
 
 // Match the polarity verified in the standalone sensor performance sketch.
 constexpr bool RAIN_ACTIVE_LOW = true;
@@ -17,6 +22,7 @@ constexpr bool IR_ACTIVE_LOW = true;
 constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
 constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 50;
+constexpr uint32_t DHT11_READ_INTERVAL_MS = 2500;
 constexpr uint32_t URGENT_PUBLISH_MIN_INTERVAL_MS = 1000;
 // The connected SW-420 module is behaving active-low on the user's setup.
 constexpr bool VIBRATION_ACTIVE_LOW = true;
@@ -41,6 +47,9 @@ bool lightBaselineReady = false;
 int gasRaw = 0;
 int lightRaw = 0;
 int previousLight = 0;
+float temperatureC = NAN;
+float humidityPct = NAN;
+uint32_t lastDhtReadAt = 0;
 bool rainDetected = false;
 bool objectDetected = false;
 bool vibrationDetected = false;
@@ -122,6 +131,15 @@ uint8_t sampleSensors(uint32_t now) {
   const bool wasLightningDetected = lightningDetected;
 
   gasRaw = analogRead(MQ135_PIN);
+  if (now - lastDhtReadAt >= DHT11_READ_INTERVAL_MS) {
+    lastDhtReadAt = now;
+    const float nextHumidityPct = dhtSensor.readHumidity();
+    const float nextTemperatureC = dhtSensor.readTemperature();
+    if (isfinite(nextHumidityPct) && isfinite(nextTemperatureC)) {
+      humidityPct = nextHumidityPct;
+      temperatureC = nextTemperatureC;
+    }
+  }
   lightRaw = analogRead(LDR_PIN);
   rainDetected = readActive(RAIN_DO_PIN, RAIN_ACTIVE_LOW);
   objectDetected = readActive(IR_OUT_PIN, IR_ACTIVE_LOW);
@@ -160,13 +178,21 @@ void publishTelemetry() {
   const bool objectForPublish = objectDetected || (pendingAlertFlags & ALERT_OBJECT);
   const bool vibrationForPublish = vibrationDetected || (pendingAlertFlags & ALERT_VIBRATION);
   const bool lightningForPublish = lightningDetected || (pendingAlertFlags & ALERT_LIGHTNING);
-  char payload[300];
+  char payload[400];
+  char temperatureJson[16];
+  char humidityJson[16];
+  if (isfinite(temperatureC)) snprintf(temperatureJson, sizeof(temperatureJson), "%.1f", temperatureC);
+  else snprintf(temperatureJson, sizeof(temperatureJson), "null");
+  if (isfinite(humidityPct)) snprintf(humidityJson, sizeof(humidityJson), "%.1f", humidityPct);
+  else snprintf(humidityJson, sizeof(humidityJson), "null");
   snprintf(
       payload,
       sizeof(payload),
-      "{\"deviceId\":\"esp32-01\",\"sensors\":{\"gasRaw\":%d,\"lightRaw\":%d,\"rainDetected\":%s,\"objectDetected\":%s,\"vibrationDetected\":%s,\"lightningDetected\":%s}}",
+      "{\"deviceId\":\"esp32-01\",\"sensors\":{\"gasRaw\":%d,\"lightRaw\":%d,\"temperatureC\":%s,\"humidityPct\":%s,\"rainDetected\":%s,\"objectDetected\":%s,\"vibrationDetected\":%s,\"lightningDetected\":%s}}",
       gasRaw,
       lightRaw,
+      temperatureJson,
+      humidityJson,
       rainForPublish ? "true" : "false",
       objectForPublish ? "true" : "false",
       vibrationForPublish ? "true" : "false",
@@ -186,6 +212,7 @@ void setup() {
   pinMode(IR_OUT_PIN, INPUT);
   pinMode(SW420_DO_PIN, INPUT);
   analogReadResolution(12);
+  dhtSensor.begin();
   tlsClient.setCACert(MQTT_ROOT_CA);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setKeepAlive(30);

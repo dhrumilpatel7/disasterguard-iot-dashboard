@@ -35,6 +35,18 @@ The dashboard can use the Google Gemini Developer API free tier for short, manua
 
 Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey) and set it as the private `GEMINI_API_KEY` environment variable in Render. Keep the project on Google's free tier and do not link billing if you want to avoid paid API usage; requests can stop when free quotas are reached. The optional `GEMINI_MODEL` defaults to `gemini-3.1-flash-lite`, which Google lists with free-tier input and output. Never place the API key in React code or commit it. The server sends only one fixed topic prompt per manual request. No live readings are sent to Gemini.
 
+## DHT11 wiring
+
+Use the free ESP32-WROOM-32 GPIO27 for the DHT11 data signal. Keep all existing sensor connections unchanged.
+
+| DHT11 pin | ESP32 connection |
+|---|---|
+| VCC / + | 3V3 |
+| DATA / S | GPIO27 |
+| GND / − | GND |
+
+For a bare 4-pin DHT11, leave its NC pin unconnected and add a 4.7 kΩ–10 kΩ pull-up resistor between DATA and 3V3. Many 3-pin modules already include this resistor; check the board or its labels. Power down the ESP32 before rewiring. The sketch samples DHT11 at 2.5-second intervals and sends `temperatureC` and `humidityPct` with the other telemetry. In Arduino IDE, install **DHT sensor library** by Adafruit (and **Adafruit Unified Sensor** if Library Manager asks for the dependency).
+
 ## Telemetry contract
 
 Publish JSON to `MQTT_TOPIC` (default `disasterguard/esp32-01/telemetry`):
@@ -44,6 +56,8 @@ Publish JSON to `MQTT_TOPIC` (default `disasterguard/esp32-01/telemetry`):
   "sensors": {
     "gasRaw": 1234,
     "lightRaw": 2750,
+    "temperatureC": 24.0,
+    "humidityPct": 55.0,
     "rainDetected": false,
     "objectDetected": true,
     "vibrationDetected": false
@@ -51,7 +65,7 @@ Publish JSON to `MQTT_TOPIC` (default `disasterguard/esp32-01/telemetry`):
 }
 ```
 
-The two analog values are raw ESP32 ADC readings (0–4095), not calibrated ppm or lux. Digital detections are booleans. Confirm the active HIGH/LOW behavior of each digital sensor and map it in the ESP32 firmware before publishing. The dashboard marks a device offline if no valid message arrives for 30 seconds. The trend chart keeps the latest 120 messages in server memory; it resets when the server restarts.
+The two analog values are raw ESP32 ADC readings (0–4095), not calibrated ppm or lux. DHT11 temperature is Celsius and humidity is relative humidity percent; both fields are null until the first successful sensor read. Digital detections are booleans. Confirm the active HIGH/LOW behavior of each digital sensor and map it in the ESP32 firmware before publishing. The dashboard marks a device offline if no valid message arrives for 30 seconds. The trend chart keeps the latest 120 messages in server memory; it resets when the server restarts.
 
 ## Production
 
@@ -59,6 +73,6 @@ Run `npm run build`, then `npm start`. The Node server serves the built frontend
 
 ## ESP32 firmware
 
-The Arduino sketch and private credential template are in `firmware/`. Open `DisasterGuardESP32.ino` in Arduino IDE, install the `PubSubClient` library, copy `secrets.example.h` to `secrets.h`, then fill in Wi-Fi credentials, the ESP32-only MQTT account, and the CA certificate downloaded from the EMQX deployment Overview page. `secrets.h` is ignored by Git; never commit it or share its values.
+The Arduino sketch and private credential template are in `firmware/`. Open `DisasterGuardESP32.ino` in Arduino IDE, install the `PubSubClient` and Adafruit DHT sensor libraries (install Adafruit Unified Sensor if prompted), copy `secrets.example.h` to `secrets.h`, then fill in Wi-Fi credentials, the ESP32-only MQTT account, and the CA certificate downloaded from the EMQX deployment Overview page. `secrets.h` is ignored by Git; never commit it or share its values.
 
 Power the ESP32 dev board by USB first. Before connecting the sensor outputs, verify that every sensor signal stays at or below 3.3 V. The sketch samples at 50 ms and publishes routine telemetry every two seconds (alert starts may publish sooner). ADC values are raw, not calibrated ppm/lux. Confirm the active HIGH/LOW behavior for the rain, IR, and vibration modules; the defaults in the sketch are configurable. The dashboard marks the device offline if no valid message arrives for 30 seconds. Remote buzzer control is not included.
