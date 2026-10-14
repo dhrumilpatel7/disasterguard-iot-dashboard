@@ -244,7 +244,6 @@ export default function Dashboard() {
   const [aiSection, setAiSection] = useState(aiGuideSections[0].id);
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiExplanation, setAiExplanation] = useState('');
-  const [aiSources, setAiSources] = useState([]);
   const [aiMessage, setAiMessage] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const activeAiSection = aiGuideSections.find((section) => section.id === aiSection) || aiGuideSections[0];
@@ -307,7 +306,6 @@ export default function Dashboard() {
     setAiBusy(true);
     setAiMessage('');
     setAiExplanation('');
-    setAiSources([]);
     try {
       const response = await fetch('/api/ai/guide', { method: 'POST', headers: {
         'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
@@ -315,7 +313,6 @@ export default function Dashboard() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
       setAiExplanation(body.explanation);
-      setAiSources(body.contextSources || []);
     } catch (error) { setAiMessage(error.message); }
     finally { setAiBusy(false); }
   }
@@ -408,13 +405,13 @@ export default function Dashboard() {
     </section>
     <section className="ai-guide-panel" id="ai-guide">
       <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">PROJECT-AWARE AI GUIDE</p><h2>AI field guide</h2><p>Ask your own question. Each request searches the approved project files for relevant context; this retrieves knowledge but does not retrain Gemini.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
-      <nav className="ai-guide-index" aria-label="AI field guide sections">{aiGuideSections.map((section, index) => <button type="button" key={section.id} className={aiSection === section.id ? 'selected' : ''} aria-pressed={aiSection === section.id} onClick={() => { setAiSection(section.id); setAiTopic(section.topics[0][0]); setAiExplanation(''); setAiSources([]); setAiMessage(''); }}><span>{String(index + 1).padStart(2, '0')}</span>{section.title}<small>{section.topics.length}</small></button>)}</nav>
-      <div className="ai-guide-controls"><label><span>INDEX {String(aiGuideSections.findIndex((section) => section.id === activeAiSection.id) + 1).padStart(2, '0')} · {activeAiSection.title}</span><select value={aiTopic} onChange={(event) => { setAiTopic(event.target.value); setAiExplanation(''); setAiSources([]); setAiMessage(''); }}>{activeAiSection.topics.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label></div>
-      <div className="ai-question-row"><label htmlFor="ai-custom-question">Your question <span>Optional · leave blank to explain the selected topic</span><textarea id="ai-custom-question" value={aiQuestion} maxLength={600} onChange={(event) => { setAiQuestion(event.target.value); setAiExplanation(''); setAiSources([]); setAiMessage(''); }} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') generateAiGuide(); }} placeholder="Ask about your sensors, ESP32 code, MQTT, dashboard, ML training, or an error…" rows={3} /></label><span className="ai-question-count">{aiQuestion.length}/600</span></div>
+      <nav className="ai-guide-index" aria-label="AI field guide sections">{aiGuideSections.map((section, index) => <button type="button" key={section.id} className={aiSection === section.id ? 'selected' : ''} aria-pressed={aiSection === section.id} onClick={() => { setAiSection(section.id); setAiTopic(section.topics[0][0]); setAiExplanation(''); setAiMessage(''); }}><span>{String(index + 1).padStart(2, '0')}</span>{section.title}<small>{section.topics.length}</small></button>)}</nav>
+      <div className="ai-guide-controls"><label><span>INDEX {String(aiGuideSections.findIndex((section) => section.id === activeAiSection.id) + 1).padStart(2, '0')} · {activeAiSection.title}</span><select value={aiTopic} onChange={(event) => { setAiTopic(event.target.value); setAiExplanation(''); setAiMessage(''); }}>{activeAiSection.topics.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label></div>
+      <div className="ai-question-row"><label htmlFor="ai-custom-question">Your question <span>Optional · leave blank to explain the selected topic</span><textarea id="ai-custom-question" value={aiQuestion} maxLength={600} onChange={(event) => { setAiQuestion(event.target.value); setAiExplanation(''); setAiMessage(''); }} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') generateAiGuide(); }} placeholder="Ask about your sensors, ESP32 code, MQTT, dashboard, ML training, or an error…" rows={3} /></label><span className="ai-question-count">{aiQuestion.length}/600</span></div>
       <button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy || (!aiQuestion.trim() && !aiTopic)}>{aiBusy ? 'Asking…' : aiQuestion.trim() ? 'Ask Gemini' : 'Explain selected topic'}</button>
       {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
       <p className="ai-privacy-note">When you click Ask, your question and relevant snippets from the README, ESP32 sketch, ML implementation, or package manifest may be sent to Google Gemini. The server excludes <code>.env</code>, <code>secrets.h</code>, telemetry, alerts, and training datasets. Do not type passwords or API keys. Requests are limited to 10 per day; Google’s free-tier quotas and data-use terms also apply.</p>
-      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiQuestion.trim() || aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div>{aiSources.length > 0 && <small className="ai-context-sources">Project context used: {aiSources.join(' · ')}</small>}</div>}
+      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiQuestion.trim() || aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
       {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
     </section>
     <section className="ml-panel" id="ml-model">
