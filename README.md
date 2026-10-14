@@ -14,7 +14,7 @@ Never commit `.env` or put broker credentials in frontend code.
 
 ## Supervised sensor-pattern model
 
-The old unsupervised anomaly score has been removed. The replacement is a small, explainable multiclass decision tree trained from MQTT readings that you label in the dashboard. It does not invent labels or train itself on an assumed “normal” startup period.
+The old unsupervised anomaly score has been removed. The replacement is a small, explainable multiclass CART-style decision tree using Gini impurity, trained from MQTT readings that you label in the dashboard. It classifies combinations of gas ADC, light ADC, DHT11 temperature/humidity (when present), and digital rain/object/vibration/light-flash states. Direct sensor cards show the individual measurements; the tree learns how labeled combinations map to the selected categories. It does not invent labels or train itself on an assumed “normal” startup period.
 
 1. Configure `ML_ADMIN_TOKEN` as a private environment variable on the server. Render Blueprints can generate it with `generateValue: true`; for an existing service, add it in the Render Environment settings. Enter that same key in the dashboard's training panel.
 2. With the ESP32 online, select the condition you are actually observing and click **Record this condition**. Incoming readings are saved with that label until you stop capture. Repeat for each condition you can safely observe, including normal conditions. The model requires at least 20 readings in any two categories before it can train; it only predicts categories with enough examples.
@@ -23,7 +23,7 @@ The old unsupervised anomaly score has been removed. The replacement is a small,
    After training, the dashboard also reports stratified 5-fold held-out accuracy and balanced accuracy. These scores measure how well the tree classifies held-out labeled sensor patterns; they do not prove real-world disaster detection, and nearby readings can still be correlated.
 4. Use **Download labeled training data** to back it up. Import restores the labeled training data.
 
-Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
+Labels describe sensor patterns only: a rain sensor trigger is not proof of a storm; vibration is not proof of an earthquake; an MQ-135 signal does not identify fire or a particular gas; an LDR flash is not proof of lightning. Synthetic demo data is deliberately clean and separable; its validation score only shows that the tree reproduces those generated patterns, not that it predicts real hazards. Replace or supplement demo data with balanced labeled readings captured from the actual sensors before interpreting field patterns. Use safe, controlled demonstrations, and do not create smoke, fire, toxic gas, or unsafe conditions to collect readings. This student project is not an emergency warning system. The training endpoints require `ML_ADMIN_TOKEN` so visitors cannot change the model. Render's free service filesystem is temporary, so keep the downloaded dataset and re-import it after a service restart or redeploy if counts reset.
 
 Direct sensor cards report current GPIO/ADC triggers. The ML pattern card is separate: it only displays a decision-tree classification after the model has trained, and shows a learned pattern label, leaf-match score, and decision path. A prediction can still match the selected training label (for example, an object-associated pattern) because that is what supervised classification is designed to learn; it is not a second independent sensor or proof of an event.
 
@@ -45,7 +45,7 @@ Use the free ESP32-WROOM-32 GPIO27 for the DHT11 data signal. Keep all existing 
 | DATA / S | GPIO27 |
 | GND / − | GND |
 
-For a bare 4-pin DHT11, leave its NC pin unconnected and add a 4.7 kΩ–10 kΩ pull-up resistor between DATA and 3V3. Many 3-pin modules already include this resistor; check the board or its labels. Power down the ESP32 before rewiring. The sketch samples DHT11 at 2.5-second intervals and sends `temperatureC` and `humidityPct` with the other telemetry. In Arduino IDE, install **DHT sensor library** by Adafruit (and **Adafruit Unified Sensor** if Library Manager asks for the dependency).
+For a bare 4-pin DHT11, leave its NC pin unconnected and add a 4.7 kΩ–10 kΩ pull-up resistor between DATA and 3V3. Many 3-pin modules already include this resistor; check the board or its labels. Power down the ESP32 before rewiring. The sketch reads DHT11 once per second and sends `temperatureC` and `humidityPct` with the other telemetry. In Arduino IDE, install **DHT sensor library** by Adafruit (and **Adafruit Unified Sensor** if Library Manager asks for the dependency).
 
 ## Telemetry contract
 

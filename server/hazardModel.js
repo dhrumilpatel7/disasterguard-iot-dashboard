@@ -10,6 +10,8 @@ export const HAZARD_CLASSES = [
 const FEATURES = [
   { key: 'gasRaw', label: 'Gas ADC', format: (value) => Math.round(value) },
   { key: 'lightRaw', label: 'Light ADC', format: (value) => Math.round(value) },
+  { key: 'temperatureC', label: 'Temperature', format: (value) => value < -100 ? 'unavailable' : `${value.toFixed(1)} °C` },
+  { key: 'humidityPct', label: 'Humidity', format: (value) => value < 0 ? 'unavailable' : `${value.toFixed(1)} % RH` },
   { key: 'rainDetected', label: 'Rain sensor', format: (value) => value >= 0.5 ? 'active' : 'clear' },
   { key: 'objectDetected', label: 'Object sensor', format: (value) => value >= 0.5 ? 'active' : 'clear' },
   { key: 'vibrationDetected', label: 'Vibration sensor', format: (value) => value >= 0.5 ? 'active' : 'clear' },
@@ -17,7 +19,10 @@ const FEATURES = [
 ];
 
 export function featuresFor(sensors) {
-  return [sensors.gasRaw, sensors.lightRaw, sensors.rainDetected ? 1 : 0, sensors.objectDetected ? 1 : 0,
+  return [sensors.gasRaw, sensors.lightRaw,
+    Number.isFinite(sensors.temperatureC) ? sensors.temperatureC : -999,
+    Number.isFinite(sensors.humidityPct) ? sensors.humidityPct : -1,
+    sensors.rainDetected ? 1 : 0, sensors.objectDetected ? 1 : 0,
     sensors.vibrationDetected ? 1 : 0, sensors.lightningDetected === true ? 1 : 0];
 }
 
