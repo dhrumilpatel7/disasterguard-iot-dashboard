@@ -19,7 +19,7 @@ DHT dhtSensor(DHT11_PIN, DHT11_TYPE);
 // Match the polarity verified in the standalone sensor performance sketch.
 constexpr bool RAIN_ACTIVE_LOW = true;
 constexpr bool IR_ACTIVE_LOW = true;
-constexpr int LIGHTNING_SPIKE_THRESHOLD = 120;
+constexpr int LIGHTNING_SPIKE_THRESHOLD = 500;
 constexpr uint32_t LIGHTNING_DISPLAY_MS = 1000;
 constexpr uint32_t LIGHTNING_REFRACTORY_MS = 1000;
 constexpr uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
