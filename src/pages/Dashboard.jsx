@@ -241,6 +241,7 @@ export default function Dashboard() {
   const [trainingBusy, setTrainingBusy] = useState(false);
   const [aiTopic, setAiTopic] = useState(aiGuideOptions[0][0]);
   const [aiSection, setAiSection] = useState(aiGuideSections[0].id);
+  const [aiQuestion, setAiQuestion] = useState('');
   const [aiExplanation, setAiExplanation] = useState('');
   const [aiMessage, setAiMessage] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
@@ -296,13 +297,18 @@ export default function Dashboard() {
     finally { setTrainingBusy(false); }
   }
   async function generateAiGuide() {
+    const question = aiQuestion.trim();
+    if (question.length > 600) {
+      setAiMessage('Keep your question under 600 characters.');
+      return;
+    }
     setAiBusy(true);
     setAiMessage('');
     setAiExplanation('');
     try {
       const response = await fetch('/api/ai/guide', { method: 'POST', headers: {
         'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
-      }, body: JSON.stringify({ topic: aiTopic }) });
+      }, body: JSON.stringify(question ? { question } : { topic: aiTopic }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
       setAiExplanation(body.explanation);
@@ -397,12 +403,14 @@ export default function Dashboard() {
       <div className="chart-caption"><span>{data.history?.length ? `${data.history.length} recent samples · newest at right` : 'Chart fills as real readings arrive'}</span><span>{['vibrationDetected', 'lightningDetected', 'rainDetected', 'objectDetected'].includes(metric) ? 'DIGITAL STATE · ACTIVE / CLEAR' : metric === 'modelClass' ? 'SUPERVISED MODEL OUTPUT · CLASS LABEL' : metric === 'temperatureC' ? 'TEMPERATURE · °C' : metric === 'humidityPct' ? 'RELATIVE HUMIDITY · % RH' : metric === 'gasRaw' ? `RAW ADC · ALERT AT ${gasThreshold}` : 'RAW ADC · 0–4095'}</span></div>
     </section>
     <section className="ai-guide-panel" id="ai-guide">
-      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Browse {aiGuideOptions.length} indexed questions about this project’s actual sensors, firmware, dashboard, and ML.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
+      <div className="ai-guide-heading"><span className="ai-guide-mark">AI</span><div><p className="overline">ON-DEMAND FIELD GUIDE</p><h2>AI field guide</h2><p>Ask your own IoT question, or browse {aiGuideOptions.length} indexed starter questions.</p></div><span className={`model-status ${data.aiEnabled ? 'ready' : ''}`}>{data.aiEnabled ? 'API READY' : 'NEEDS API KEY'}</span></div>
       <nav className="ai-guide-index" aria-label="AI field guide sections">{aiGuideSections.map((section, index) => <button type="button" key={section.id} className={aiSection === section.id ? 'selected' : ''} aria-pressed={aiSection === section.id} onClick={() => { setAiSection(section.id); setAiTopic(section.topics[0][0]); setAiExplanation(''); setAiMessage(''); }}><span>{String(index + 1).padStart(2, '0')}</span>{section.title}<small>{section.topics.length}</small></button>)}</nav>
-      <div className="ai-guide-controls"><label><span>INDEX {String(aiGuideSections.findIndex((section) => section.id === activeAiSection.id) + 1).padStart(2, '0')} · {activeAiSection.title}</span><select value={aiTopic} onChange={(event) => { setAiTopic(event.target.value); setAiExplanation(''); setAiMessage(''); }}>{activeAiSection.topics.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label><button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy}>{aiBusy ? 'Asking…' : 'Explain this topic'}</button></div>
+      <div className="ai-guide-controls"><label><span>INDEX {String(aiGuideSections.findIndex((section) => section.id === activeAiSection.id) + 1).padStart(2, '0')} · {activeAiSection.title}</span><select value={aiTopic} onChange={(event) => { setAiTopic(event.target.value); setAiExplanation(''); setAiMessage(''); }}>{activeAiSection.topics.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label></div>
+      <div className="ai-question-row"><label htmlFor="ai-custom-question">Your question <span>Optional · leave blank to explain the selected topic</span><textarea id="ai-custom-question" value={aiQuestion} maxLength={600} onChange={(event) => { setAiQuestion(event.target.value); setAiExplanation(''); setAiMessage(''); }} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') generateAiGuide(); }} placeholder="Ask about your sensors, ESP32 code, MQTT, dashboard, ML training, or an error…" rows={3} /></label><span className="ai-question-count">{aiQuestion.length}/600</span></div>
+      <button className="ml-button primary" type="button" onClick={generateAiGuide} disabled={!data.aiEnabled || !adminToken || aiBusy || (!aiQuestion.trim() && !aiTopic)}>{aiBusy ? 'Asking…' : aiQuestion.trim() ? 'Ask Gemini' : 'Explain selected topic'}</button>
       {!data.aiEnabled ? <p className="ai-privacy-note">Add a free-tier <code>GEMINI_API_KEY</code> to the Render service environment to enable the guide.</p> : !adminToken && <p className="ai-privacy-note">Enter your training access key in the ML section above to use this protected feature.</p>}
-      <p className="ai-privacy-note">Privacy: each manual request sends Google Gemini only one fixed topic prompt. The guide never receives live readings, alerts, training data, or ML results. Requests are limited to 10 per day and also follow Google’s free-tier quotas.</p>
-      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
+      <p className="ai-privacy-note">Privacy: only when you click Ask, the typed question or selected topic goes to Google Gemini. Project source files and live readings, alerts, training data, and ML results stay on this server. Requests are limited to 10 per day and also follow Google’s free-tier quotas.</p>
+      {aiExplanation && <div className="ai-explanation" role="status"><strong>{aiQuestion.trim() || aiGuideOptions.find(([id]) => id === aiTopic)?.[1]}</strong><div className="ai-markdown"><GuideMarkdown text={aiExplanation} /></div></div>}
       {aiMessage && <p className="ml-message" role="status">{aiMessage}</p>}
     </section>
     <section className="ml-panel" id="ml-model">

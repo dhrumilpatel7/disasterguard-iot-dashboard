@@ -252,8 +252,10 @@ app.get('/api/ml/summary', (_request, response) => response.json(mlSnapshot()));
 app.post('/api/ai/guide', requireMlAdmin, async (request, response) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return response.status(503).json({ error: 'AI guide is not configured. Add GEMINI_API_KEY to the server environment.' });
-  const prompt = aiGuideTopics[request.body?.topic];
-  if (!prompt) return response.status(400).json({ error: 'Choose one of the listed AI guide topics.' });
+  const question = typeof request.body?.question === 'string' ? request.body.question.trim() : '';
+  if (question.length > 600) return response.status(400).json({ error: 'Keep your question under 600 characters.' });
+  const prompt = question || aiGuideTopics[request.body?.topic];
+  if (!prompt) return response.status(400).json({ error: 'Type a question or choose one of the indexed topics.' });
   const now = Date.now();
   if (now - aiWindowStartedAt >= 24 * 60 * 60 * 1000) { aiWindowStartedAt = now; aiGuideRequestsUsed = 0; }
   if (aiGuideRequestsUsed >= aiDailyLimit) return response.status(429).json({ error: 'Daily AI guide limit reached. Try again after the limit resets.' });
@@ -268,9 +270,9 @@ app.post('/api/ai/guide', requireMlAdmin, async (request, response) => {
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: 'You are a friendly tutor for the DisasterGuard student IoT dashboard. Explain general concepts simply and briefly (at most 100 words). You do not have access to the dashboard, current readings, alerts, training data, or model output. Never claim to analyze live conditions or confirm a real emergency. Keep safety guidance conservative.' }] },
+        system_instruction: { parts: [{ text: 'You are a friendly tutor for the DisasterGuard student IoT dashboard. Answer the user question clearly in up to 180 words, using short headings or steps when helpful. You have no private project source files and no access to the dashboard, current readings, alerts, training data, or model output. Do not pretend otherwise or claim to analyze live conditions. Never claim hobby sensors confirm a real emergency. Be candid when uncertain and keep electrical and sensor safety guidance conservative.' }] },
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 220, temperature: 0.3 },
+        generationConfig: { maxOutputTokens: 400, temperature: 0.3 },
       }),
     });
     const result = await aiResponse.json().catch(() => ({}));
@@ -282,7 +284,7 @@ app.post('/api/ai/guide', requireMlAdmin, async (request, response) => {
     }
     const explanation = (result.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').join('\n').trim();
     if (!explanation) return response.status(502).json({ error: 'Gemini returned an empty explanation. Please try again.' });
-    return response.json({ explanation, generatedAt: now, topic: request.body.topic });
+    return response.json({ explanation, generatedAt: now, topic: question ? null : request.body.topic, customQuestion: Boolean(question) });
   } catch (error) {
     console.error('AI guide request failed:', error.name || 'unknown error');
     return response.status(502).json({ error: error.name === 'TimeoutError' ? 'The AI explanation timed out. Try again.' : 'Could not reach Gemini. Try again later.' });
